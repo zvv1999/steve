@@ -24,8 +24,15 @@ async function readJson(path) {
   return JSON.parse(await readFile(path, "utf-8"));
 }
 
+function redactSecrets(text) {
+  return String(text || "")
+    .replace(/\bark-[A-Za-z0-9_-]+\b/g, "ark-***")
+    .replace(/\b(sk|ak|pk)-[A-Za-z0-9_-]{16,}\b/g, "$1-***")
+    .replace(/\bBearer\s+[A-Za-z0-9._-]{16,}\b/gi, "Bearer ***");
+}
+
 function short(text, max = 260) {
-  return String(text || "").replace(/\s+/g, " ").trim().slice(0, max);
+  return redactSecrets(text).replace(/\s+/g, " ").trim().slice(0, max);
 }
 
 function safeFileName(text) {
@@ -51,6 +58,43 @@ async function countActions(page) {
     page.locator("input, textarea, select").count().catch(() => 0),
   ]);
   return { buttons, links, inputs, total: buttons + links + inputs };
+}
+
+async function findLayoutIssues(page) {
+  return page.evaluate(() => {
+    const isVisible = (el) => {
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+    };
+    const redact = (text) => String(text || "")
+      .replace(/\bark-[A-Za-z0-9_-]+\b/g, "ark-***")
+      .replace(/\b(sk|ak|pk)-[A-Za-z0-9_-]{16,}\b/g, "$1-***")
+      .replace(/\bBearer\s+[A-Za-z0-9._-]{16,}\b/gi, "Bearer ***")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120);
+    const items = [];
+    for (const el of document.querySelectorAll("button, a, input, textarea, select, [role='button'], [role='link'], .card, .modal, .panel, .sidebar, .toolbar")) {
+      if (!isVisible(el)) continue;
+      const tag = el.tagName.toLowerCase();
+      if (["input", "textarea", "select"].includes(tag)) continue;
+      const overX = el.scrollWidth - el.clientWidth;
+      const overY = el.scrollHeight - el.clientHeight;
+      if (overX <= 2 && overY <= 2) continue;
+      const rect = el.getBoundingClientRect();
+      items.push({
+        tag,
+        role: el.getAttribute("role") || "",
+        className: String(el.className || "").slice(0, 120),
+        text: redact(el.innerText || el.getAttribute("aria-label") || el.getAttribute("placeholder") || ""),
+        overflow: { x: Math.round(overX), y: Math.round(overY) },
+        box: { width: Math.round(rect.width), height: Math.round(rect.height) },
+      });
+      if (items.length >= 8) break;
+    }
+    return items;
+  }).catch(() => []);
 }
 
 function evaluateHeuristics({ journey, text, actions, heuristics, findings }) {
@@ -133,12 +177,13 @@ async function login(page, { baseUrl, username, password, findings, transcript }
 }
 
 async function auditJourney(page, journey, context) {
-  const { baseUrl, screenshotDir, heuristics, rows, findings, transcript } = context;
+  const { baseUrl, screenshotDir, heuristics, rows, findings, transcript, viewport } = context;
   const url = new URL(journey.path, baseUrl).toString();
-  const screenshot = `${safeFileName(journey.name)}.png`;
+  const screenshot = `${safeFileName(`${viewport.id}-${journey.name}`)}.png`;
   const row = {
     id: journey.id,
     name: journey.name,
+    viewport: viewport.id,
     goal: journey.goal,
     url,
     ok: true,
@@ -184,6 +229,22 @@ async function auditJourney(page, journey, context) {
   row.actions = actions;
   evaluateHeuristics({ journey, text, actions, heuristics, findings });
 
+  if (journey.disallowOverflow !== false) {
+    const layoutIssues = await findLayoutIssues(page);
+    row.layoutIssues = layoutIssues;
+    if (layoutIssues.length) {
+      addFinding(findings, {
+        priority: "P2",
+        area: `${journey.name} (${viewport.id})`,
+        issue: "Visible UI element has overflowing content",
+        evidence: JSON.stringify(layoutIssues.slice(0, 3)),
+        suggestion: "Tighten responsive sizing, wrapping, or overflow behavior so labels and controls do not clip.",
+        autoFixable: false,
+        heuristic: "layout-overflow",
+      });
+    }
+  }
+
   await page.screenshot({ path: join(screenshotDir, screenshot), fullPage: true }).catch((error) => {
     row.notes.push(`Screenshot failed: ${error.message}`);
   });
@@ -193,7 +254,57 @@ async function auditJourney(page, journey, context) {
   rows.push(row);
 }
 
-function renderReport({ run, rows, findings, consoleEvents }) {
+async function runHealthChecks(context, { baseUrl, journeySet, findings, transcript }) {
+  const checks = [];
+  for (const check of journeySet.healthChecks || []) {
+    const url = new URL(check.path, baseUrl).toString();
+    const method = String(check.method || "GET").toUpperCase();
+    const response = await context.request.fetch(url, {
+      method,
+      data: check.body,
+      timeout: check.timeoutMs || 8000,
+    }).catch((error) => ({ error }));
+    const item = {
+      id: check.id,
+      name: check.name || check.id,
+      method,
+      url,
+      ok: false,
+    };
+    if (response.error) {
+      item.error = response.error.message;
+    } else {
+      item.status = response.status();
+      item.ok = item.status >= (check.minStatus || 200) && item.status <= (check.maxStatus || 299);
+      if (check.expectJson) {
+        const json = await response.json().catch(() => null);
+        item.jsonPreview = json && typeof json === "object" ? Object.keys(json).slice(0, 12) : null;
+        if (check.expectJsonKey && !(json && Object.prototype.hasOwnProperty.call(json, check.expectJsonKey))) {
+          item.ok = false;
+          item.error = `Missing JSON key: ${check.expectJsonKey}`;
+        }
+      }
+    }
+    if (!item.ok) {
+      addFinding(findings, {
+        priority: check.priority || "P1",
+        area: "Health checks",
+        issue: `Health check failed: ${item.name}`,
+        evidence: item.error || `${method} ${check.path} returned HTTP ${item.status}`,
+        suggestion: check.suggestion || "Make this endpoint return a stable success response during the personal-edition product flow.",
+        autoFixable: false,
+        heuristic: "health-check",
+      });
+    }
+    checks.push(item);
+  }
+  if (checks.length) {
+    transcript.push(`## Health checks\n\n${JSON.stringify(checks, null, 2)}\n`);
+  }
+  return checks;
+}
+
+function renderReport({ run, rows, findings, consoleEvents, networkEvents, healthChecks }) {
   const lines = [
     "# Product Experience Audit",
     "",
@@ -205,6 +316,8 @@ function renderReport({ run, rows, findings, consoleEvents }) {
     `- Journeys: ${run.summary.passed}/${run.summary.journeys} passed`,
     `- Findings: ${run.summary.findings} (${run.summary.blockingFindings} blocking)`,
     `- Console/Page errors: ${consoleEvents.length}`,
+    `- Network 5xx errors: ${networkEvents.length}`,
+    `- Health checks: ${healthChecks.filter((item) => item.ok).length}/${healthChecks.length} passed`,
     "",
     "## Journey Results",
     "",
@@ -213,7 +326,7 @@ function renderReport({ run, rows, findings, consoleEvents }) {
     ...rows.map((row) => {
       const status = row.ok ? "PASS" : "FAIL";
       const evidence = row.missing.length ? `Missing: ${row.missing.join(", ")}` : row.notes.join("; ") || row.preview;
-      return `| ${row.name} | ${status} | ${evidence.replaceAll("|", "\\|")} | ${row.screenshot} |`;
+      return `| ${row.name} (${row.viewport}) | ${status} | ${evidence.replaceAll("|", "\\|")} | ${row.screenshot} |`;
     }),
     "",
     "## Findings",
@@ -238,6 +351,20 @@ function renderReport({ run, rows, findings, consoleEvents }) {
     lines.push("", "## Console/Page Errors", "");
     for (const event of consoleEvents.slice(0, 50)) {
       lines.push(`- [${event.type}] ${event.url || ""} ${event.text}`);
+    }
+  }
+
+  if (networkEvents.length) {
+    lines.push("", "## Network 5xx Errors", "");
+    for (const event of networkEvents.slice(0, 50)) {
+      lines.push(`- HTTP ${event.status}: ${event.url}`);
+    }
+  }
+
+  if (healthChecks.length) {
+    lines.push("", "## Health Checks", "");
+    for (const check of healthChecks) {
+      lines.push(`- ${check.ok ? "PASS" : "FAIL"} · ${check.name}: ${check.status || check.error}`);
     }
   }
 
@@ -280,6 +407,7 @@ async function runAudit(args) {
   const rows = [];
   const consoleEvents = [];
   const networkEvents = [];
+  let healthChecks = [];
   const transcript = [];
 
   const browser = await chromium.launch({ headless: args.headed !== true });
@@ -325,20 +453,42 @@ async function runAudit(args) {
       if (!ok) process.exitCode = 1;
     }
 
-    for (const journey of journeySet.journeys) {
-      await auditJourney(page, {
-        ...journey,
-      }, {
-        baseUrl,
-        screenshotDir,
-        heuristics,
-        rows,
-        findings,
-        transcript,
-      });
+    const viewports = journeySet.viewports?.length
+      ? journeySet.viewports
+      : [{ id: "desktop", width: 1440, height: 1000 }];
+    for (const viewport of viewports) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      transcript.push(`# Viewport: ${viewport.id} (${viewport.width}x${viewport.height})\n`);
+      for (const journey of journeySet.journeys) {
+        await auditJourney(page, {
+          ...journey,
+        }, {
+          baseUrl,
+          screenshotDir,
+          heuristics,
+          rows,
+          findings,
+          transcript,
+          viewport,
+        });
+      }
     }
+
+    healthChecks = await runHealthChecks(context, { baseUrl, journeySet, findings, transcript });
   } finally {
     await browser.close();
+  }
+
+  if (networkEvents.length) {
+    addFinding(findings, {
+      priority: "P1",
+      area: "Network",
+      issue: "One or more server errors occurred during the scripted experience",
+      evidence: networkEvents.map((event) => `HTTP ${event.status} ${event.url}`).slice(0, 5).join("; "),
+      suggestion: "Handle disabled services and expected empty states with 2xx responses, or route errors into user-facing recovery copy.",
+      autoFixable: false,
+      heuristic: "network-5xx",
+    });
   }
 
   const blocking = findings.filter((item) => item.priority === "P0" || item.priority === "P1");
@@ -356,6 +506,8 @@ async function runAudit(args) {
       blockingFindings: blocking.length,
       consoleEvents: consoleEvents.length,
       networkEvents: networkEvents.length,
+      healthChecks: healthChecks.length,
+      passedHealthChecks: healthChecks.filter((item) => item.ok).length,
     },
   };
 
@@ -365,8 +517,9 @@ async function runAudit(args) {
     writeFile(join(outDir, "findings.json"), JSON.stringify(findings, null, 2)),
     writeFile(join(outDir, "console.json"), JSON.stringify(consoleEvents, null, 2)),
     writeFile(join(outDir, "network.json"), JSON.stringify(networkEvents, null, 2)),
+    writeFile(join(outDir, "health.json"), JSON.stringify(healthChecks, null, 2)),
     writeFile(join(outDir, "transcript.md"), transcript.join("\n")),
-    writeFile(join(outDir, "report.md"), renderReport({ run, rows, findings, consoleEvents })),
+    writeFile(join(outDir, "report.md"), renderReport({ run, rows, findings, consoleEvents, networkEvents, healthChecks })),
   ]);
 
   console.log(`UX audit written to ${join(outDir, "report.md")}`);
