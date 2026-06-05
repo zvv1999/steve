@@ -555,50 +555,50 @@ async function recordObservation({ observations, page, screenshotDir, planId, st
 
 function renderReviewReport({ startedAt, baseUrl, persona, plans, observations, findings, consoleEvents, networkEvents }) {
   const lines = [
-    "# Product Experience Review",
+    "# 产品体验评审报告",
     "",
-    `- Target: ${baseUrl}`,
-    `- Persona: ${persona.name} (${persona.id})`,
-    `- Time: ${startedAt}`,
-    `- Test plans: ${plans.length}`,
-    `- Observations: ${observations.length}`,
-    `- Product findings: ${findings.length}`,
-    `- Console warnings/errors: ${consoleEvents.length}`,
-    `- Network 5xx: ${networkEvents.length}`,
+    `- 目标地址: ${baseUrl}`,
+    `- 用户画像: ${persona.name} (${persona.id})`,
+    `- 时间: ${startedAt}`,
+    `- 测试计划: ${plans.length}`,
+    `- 上手观察: ${observations.length}`,
+    `- 产品发现: ${findings.length}`,
+    `- Console 警告/错误: ${consoleEvents.length}`,
+    `- 网络 5xx: ${networkEvents.length}`,
     "",
-    "## Product Test Plans",
+    "## 产品测试计划",
     "",
   ];
 
   for (const plan of plans) {
     lines.push(`### ${plan.name}`, "");
-    lines.push(`- Product question: ${plan.productQuestion}`);
-    lines.push(`- Success signals: ${(plan.successSignals || []).join(" / ")}`);
-    lines.push(`- Experience scope: ${(plan.experienceScope || []).join(" / ")}`);
+    lines.push(`- 产品问题: ${plan.productQuestion}`);
+    lines.push(`- 成功信号: ${(plan.successSignals || []).join(" / ")}`);
+    lines.push(`- 体验范围: ${(plan.experienceScope || []).join(" / ")}`);
     lines.push("");
   }
 
-  lines.push("## Hands-on Observations", "");
+  lines.push("## 实际上手观察", "");
   for (const item of observations) {
     lines.push(`- [${item.planId}] ${item.step}: ${item.observation || item.evidence || item.preview}${item.screenshot ? ` (${item.screenshot})` : ""}`);
   }
 
-  lines.push("", "## Findings And Evolution Directions", "");
+  lines.push("", "## 问题与演进方向", "");
   if (!findings.length) {
-    lines.push("No product findings from this review pass.");
+    lines.push("本轮产品体验未发现明确问题。");
   } else {
     for (const item of findings) {
       lines.push(`### ${item.priority} · ${item.issue}`, "");
-      lines.push(`- Plan: ${item.planId}`);
-      lines.push(`- Evidence: ${item.evidence}`);
-      lines.push(`- Evolution: ${item.evolution}`);
-      if (item.fixDirection) lines.push(`- Fix direction: ${item.fixDirection}`);
+      lines.push(`- 计划: ${item.planId}`);
+      lines.push(`- 证据: ${item.evidence}`);
+      lines.push(`- 演进方向: ${item.evolution}`);
+      if (item.fixDirection) lines.push(`- 修复方向: ${item.fixDirection}`);
       lines.push("");
     }
   }
 
   if (consoleEvents.length) {
-    lines.push("## Console Warnings/Errors", "");
+    lines.push("## Console 警告/错误", "");
     for (const event of consoleEvents.slice(0, 50)) {
       lines.push(`- [${event.type}] ${event.url || ""} ${event.text}`);
     }
@@ -606,7 +606,7 @@ function renderReviewReport({ startedAt, baseUrl, persona, plans, observations, 
   }
 
   if (networkEvents.length) {
-    lines.push("## Network 5xx", "");
+    lines.push("## 网络 5xx", "");
     for (const event of networkEvents.slice(0, 50)) {
       lines.push(`- HTTP ${event.status}: ${event.url}`);
     }
@@ -633,7 +633,7 @@ async function runCodeNextProductReview({ page, context, baseUrl, screenshotDir,
       screenshotDir,
       planId: "activation",
       step: "logged-in-home",
-      observation: "Login lands in the workbench; project sidebar and utility links are visible, but the central canvas still waits for the user to infer the first move.",
+      observation: "登录后进入工作台，项目侧栏和底部工具入口都可见，但主画布仍需要用户自己推断第一步该做什么。",
     });
 
     await page.locator("#new-project-btn").click();
@@ -644,7 +644,7 @@ async function runCodeNextProductReview({ page, context, baseUrl, screenshotDir,
       screenshotDir,
       planId: "activation",
       step: "new-project-modal",
-      observation: "The create-project modal exposes blank project, Git clone, and local session import. The capability is strong, but the choice density is high for first activation.",
+      observation: "新建项目弹窗提供空项目、Git 克隆、本地会话导入。能力很强，但对首次激活来说选择密度偏高。",
     });
 
     await page.locator("#new-project-name").fill(tempProjectName);
@@ -657,7 +657,7 @@ async function runCodeNextProductReview({ page, context, baseUrl, screenshotDir,
       screenshotDir,
       planId: "activation",
       step: "project-created-ui",
-      observation: "After project creation the project appears in the sidebar, but the main canvas still explains the project/session relationship instead of moving the user forward.",
+      observation: "创建项目后，项目出现在侧栏，但主画布仍在解释项目/会话关系，没有主动把用户推向下一步。",
     });
 
     const projects = await requestJson(context, "GET", new URL("/api/projects", baseUrl).toString());
@@ -679,7 +679,7 @@ async function runCodeNextProductReview({ page, context, baseUrl, screenshotDir,
         screenshotDir,
         planId: "core-coding",
         step: "project-opened",
-        observation: "Opening the project reveals the new-session entry. The product is ready to work, but it still makes the user assemble project, session, and AI task concepts alone.",
+        observation: "打开项目后可以看到新建会话入口。产品已经具备工作条件，但仍让用户自己拼起项目、会话和 AI 任务这些概念。",
       });
 
       const sessions = await requestJson(context, "GET", new URL(`/api/projects/${encodeURIComponent(tempProjectId)}/sessions`, baseUrl).toString());
@@ -706,7 +706,7 @@ async function runCodeNextProductReview({ page, context, baseUrl, screenshotDir,
       screenshotDir,
       planId: "ai-readiness",
       step: "settings",
-      observation: "Gateway settings are powerful and transparent, but the page leads with implementation language such as env, spawn, and proxy.",
+      observation: "网关设置能力完整且透明，但页面优先呈现 env、spawn、proxy 等实现术语。",
     });
     const models = await requestJson(context, "GET", new URL("/api/gateway/models", baseUrl).toString());
     addApiObservation({
@@ -724,7 +724,7 @@ async function runCodeNextProductReview({ page, context, baseUrl, screenshotDir,
       screenshotDir,
       planId: "ai-readiness",
       step: "gateway-logs-empty",
-      observation: "The gateway log empty state is stable, but it says to select a request even when no request exists.",
+      observation: "网关日志空态稳定，但在没有任何请求时仍提示选择一条请求。",
     });
 
     await page.goto(new URL("/skillhub.html", baseUrl).toString(), { waitUntil: "domcontentloaded" });
@@ -735,7 +735,7 @@ async function runCodeNextProductReview({ page, context, baseUrl, screenshotDir,
       screenshotDir,
       planId: "ecosystem",
       step: "skillhub",
-      observation: "Skill Hub communicates extensibility through Git import, marketplace, and local skills. The next product step is goal-based recommendation, not just browsing.",
+      observation: "技能中心通过 Git 导入、公共市场、本地技能传达了扩展能力；下一步应从浏览列表演进到基于目标的推荐。",
     });
 
     await page.goto(new URL("/mcp.html", baseUrl).toString(), { waitUntil: "domcontentloaded" });
@@ -746,7 +746,7 @@ async function runCodeNextProductReview({ page, context, baseUrl, screenshotDir,
       screenshotDir,
       planId: "ecosystem",
       step: "mcp",
-      observation: "MCP extensions are concrete and understandable, with install state and use cases visible.",
+      observation: "MCP 扩展具体且容易理解，安装状态和使用场景都可见。",
     });
 
     await page.goto(new URL("/docs/", baseUrl).toString(), { waitUntil: "domcontentloaded" });
@@ -757,7 +757,7 @@ async function runCodeNextProductReview({ page, context, baseUrl, screenshotDir,
       screenshotDir,
       planId: "opensource",
       step: "docs-overview",
-      observation: "Docs explain the cloud AI coding platform positioning clearly enough for external readers.",
+      observation: "文档能较清楚地向外部读者解释云端 AI 编程平台定位。",
     });
 
     await page.goto(new URL("/docs/quickstart/", baseUrl).toString(), { waitUntil: "domcontentloaded" });
@@ -768,7 +768,7 @@ async function runCodeNextProductReview({ page, context, baseUrl, screenshotDir,
       screenshotDir,
       planId: "opensource",
       step: "docs-quickstart",
-      observation: "Quickstart gives a path, but it still carries cloud-container assumptions. A personal open-source quickstart should be shorter and more local-first.",
+      observation: "快速开始给出了路径，但仍带有云端容器假设；个人开源版需要更短、更本地优先的路径。",
     });
 
     await page.goto(new URL("/import.html", baseUrl).toString(), { waitUntil: "domcontentloaded" });
@@ -778,7 +778,7 @@ async function runCodeNextProductReview({ page, context, baseUrl, screenshotDir,
       screenshotDir,
       planId: "opensource",
       step: "import-direct",
-      observation: "The direct import route now recovers gracefully and points the user back to the main UI.",
+      observation: "导入直达页已经能优雅恢复，并引导用户回到主界面。",
     });
   } finally {
     if (tempProjectId) {
@@ -868,8 +868,8 @@ async function runReview(args) {
     })),
   ]);
 
-  console.log(`Product review written to ${join(outDir, "report.md")}`);
-  console.log(`Product findings written to ${join(outDir, "findings.json")}`);
+  console.log(`产品体验报告已写入 ${join(outDir, "report.md")}`);
+  console.log(`产品发现已写入 ${join(outDir, "findings.json")}`);
 }
 
 async function runAudit(args) {

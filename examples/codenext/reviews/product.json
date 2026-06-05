@@ -1,87 +1,87 @@
 {
   "id": "codenext-product-review",
-  "name": "CodeNext product experience review",
+  "name": "CodeNext 产品体验评审",
   "workflow": "codenext-product",
   "login": true,
   "tempProjectPrefix": "steve_px",
   "plans": [
     {
       "id": "activation",
-      "name": "First activation and empty state",
-      "productQuestion": "Does a first-time user understand what this is, what to do next, and why to continue?",
+      "name": "首次激活与空状态",
+      "productQuestion": "第一次进入产品时，用户是否知道这是什么、下一步做什么，以及为什么值得继续？",
       "successSignals": [
-        "Login is smooth",
-        "Empty state has a clear next step",
-        "Create-project entry is visible",
-        "Created project appears without confusion"
+        "登录顺畅",
+        "空状态有明确下一步",
+        "新建项目入口明显",
+        "创建项目后状态不让人迷路"
       ],
       "experienceScope": [
-        "login",
-        "workbench empty state",
-        "create project modal",
-        "post-create state"
+        "登录",
+        "工作台空状态",
+        "新建项目弹窗",
+        "创建后的状态"
       ]
     },
     {
       "id": "core-coding",
-      "name": "Core coding loop",
-      "productQuestion": "Can the user move from project to a creative AI coding state while understanding project, session, file, and Git concepts?",
+      "name": "核心创作闭环",
+      "productQuestion": "用户是否能从项目进入真实创作状态，并理解项目、会话、文件和 Git 之间的关系？",
       "successSignals": [
-        "Project can be opened",
-        "Session entry is visible",
-        "Project APIs are stable",
-        "Git status does not mislead fresh projects"
+        "项目可以打开",
+        "会话入口可见",
+        "项目 API 稳定",
+        "新项目的 Git 状态不误导用户"
       ],
       "experienceScope": [
-        "project open",
-        "session list",
-        "git status"
+        "打开项目",
+        "会话列表",
+        "Git 状态"
       ]
     },
     {
       "id": "ai-readiness",
-      "name": "AI readiness and trust",
-      "productQuestion": "Can the user confirm AI is ready, and do they know where to debug it if it fails?",
+      "name": "AI 能力可信度",
+      "productQuestion": "用户是否能确认 AI 已经可用，并且知道失败时去哪里排查？",
       "successSignals": [
-        "Gateway configuration is visible",
-        "Model list is reachable",
-        "Gateway logs are reachable",
-        "Empty logs explain what happens next"
+        "网关配置可见",
+        "模型列表可访问",
+        "网关日志可访问",
+        "空日志状态能解释下一步"
       ],
       "experienceScope": [
-        "settings",
-        "model discovery",
-        "gateway logs"
+        "设置页",
+        "模型发现",
+        "网关日志"
       ]
     },
     {
       "id": "ecosystem",
-      "name": "Ecosystem and extension",
-      "productQuestion": "Can the user understand skills and MCP as ways to extend the product?",
+      "name": "生态扩展与技能",
+      "productQuestion": "用户是否能理解技能和 MCP 是扩展产品能力的方式？",
       "successSignals": [
-        "Skill Hub is understandable",
-        "MCP extensions are browsable",
-        "Recommendations connect to user goals"
+        "技能中心容易理解",
+        "MCP 扩展可浏览",
+        "推荐能力能连接用户目标"
       ],
       "experienceScope": [
-        "Skill Hub",
-        "MCP extensions"
+        "技能中心",
+        "MCP 扩展"
       ]
     },
     {
       "id": "opensource",
-      "name": "Open-source readiness",
-      "productQuestion": "Can an external developer self-serve through docs, API, import, and setup paths?",
+      "name": "开源发布准备",
+      "productQuestion": "外部开发者是否能通过文档、API、导入和设置路径完成自助上手？",
       "successSignals": [
-        "Docs explain positioning",
-        "Quickstart is short enough",
-        "Direct import route recovers",
-        "API docs are reachable"
+        "文档解释清楚产品定位",
+        "快速开始足够短",
+        "导入直达页能自恢复",
+        "API 文档可访问"
       ],
       "experienceScope": [
-        "docs overview",
-        "quickstart",
-        "direct import"
+        "文档概览",
+        "快速开始",
+        "导入直达页"
       ]
     }
   ],
@@ -89,50 +89,50 @@
     {
       "priority": "P1",
       "planId": "activation",
-      "issue": "The first workbench screen lacks a primary activation CTA",
-      "evidence": "The empty state mainly says to select a project from the left instead of guiding the user through create project, verify gateway, and send first task.",
-      "evolution": "Turn the empty canvas into a three-step activation rail: create project, verify AI gateway, send first task. Hide it after completion.",
-      "fixDirection": "Add a first-run panel in the main canvas with one primary action and two secondary actions."
+      "issue": "首次进入工作台后，主区域缺少真正的激活主 CTA",
+      "evidence": "空状态主要提示用户从左侧选择项目，而不是引导用户完成创建项目、验证 AI 网关、发起第一条任务。",
+      "evolution": "把空白画布改成三步激活路径：创建项目、验证 AI 网关、发起第一条任务。完成后自动隐藏。",
+      "fixDirection": "在主画布增加首次使用面板，保留一个主按钮和两个次级动作。"
     },
     {
       "priority": "P1",
       "planId": "core-coding",
-      "issue": "Project, session, and AI task concepts still require user inference",
-      "evidence": "After creating a project, the user must click the project and then discover the new-session action. The product does not explain that a project is a code directory and a session is one AI work thread.",
-      "evolution": "After project creation, auto-open the project and offer task templates such as inspect this project, create first file, or open terminal.",
-      "fixDirection": "Make successful project creation transition directly into the project context with clear next-task cards."
+      "issue": "项目、会话、AI 任务之间的关系仍需要用户自己推断",
+      "evidence": "创建项目后，用户还需要点击项目并发现新建会话入口；产品没有明确解释项目是代码目录，会话是一次 AI 工作线程。",
+      "evolution": "创建项目成功后自动打开项目，并提供任务模板，例如检查当前项目、创建第一个文件、打开终端。",
+      "fixDirection": "项目创建成功后直接进入项目上下文，并展示清晰的下一步任务卡片。"
     },
     {
       "priority": "P2",
       "planId": "ai-readiness",
-      "issue": "Gateway settings are trustworthy but too implementation-led",
-      "evidence": "The settings copy exposes env, spawn, proxy, and container proxy language. This is useful for debugging, but heavy for first-time setup.",
-      "evolution": "Split settings into a connection status card and an advanced configuration section. Default to model availability, latency, and last request status.",
-      "fixDirection": "Move low-level env/proxy/spawn copy into an Advanced details disclosure."
+      "issue": "网关设置可信但过于工程实现导向",
+      "evidence": "设置页暴露 env、spawn、proxy、容器内 proxy 等术语；这些信息适合排障，但对首次配置偏重。",
+      "evolution": "把设置页拆成连接状态卡片和高级配置区域；默认展示模型可用性、延迟、最近一次请求状态。",
+      "fixDirection": "把 env/proxy/spawn 等低层说明收进“高级详情”。"
     },
     {
       "priority": "P2",
       "planId": "ai-readiness",
-      "issue": "Gateway log empty state does not explain how logs are created",
-      "evidence": "With zero logs, the page still says to select a request from the left.",
-      "evolution": "Explain that logs appear after an AI request, and offer a jump to new session or a test gateway action.",
-      "fixDirection": "Replace the empty detail copy with a next-step empty state."
+      "issue": "网关日志空态没有解释日志如何产生",
+      "evidence": "0 条日志时，页面仍提示从左侧选择一条请求。",
+      "evolution": "说明日志会在发起 AI 请求后出现，并提供跳转到新建会话或测试网关的入口。",
+      "fixDirection": "替换空详情文案，改成带下一步动作的空状态。"
     },
     {
       "priority": "P2",
       "planId": "ecosystem",
-      "issue": "Skill Hub is complete, but recommendations are not yet productized around user intent",
-      "evidence": "The page lists many options, but does not explain why a given skill is recommended for the user's current goal.",
-      "evolution": "Wrap the skill search and LLM reranking capability into an intent flow: describe goal, see recommended skills, install, then start a session with those skills active.",
-      "fixDirection": "Add a goal input above recommendations and label why each suggested skill fits."
+      "issue": "技能中心功能完整，但推荐还没有围绕用户意图产品化",
+      "evidence": "页面列出了很多选项，但没有解释某个技能为什么适合当前用户目标。",
+      "evolution": "把技能搜索和 LLM 重排序包装成意图流程：描述目标、获得推荐、安装技能、开启带技能的新会话。",
+      "fixDirection": "在推荐区上方增加目标输入，并标注每个推荐技能的匹配原因。"
     },
     {
       "priority": "P2",
       "planId": "opensource",
-      "issue": "Open-source quickstart is useful but not yet short enough for the personal edition",
-      "evidence": "Quickstart still includes cloud-container deployment assumptions. Local personal users want a five-minute path.",
-      "evolution": "Add a personal-edition quickstart: install, configure OpenAI-compatible gateway, create project, send first task.",
-      "fixDirection": "Add a local-first README/quickstart section with exact commands and expected first screen."
+      "issue": "开源快速开始有用，但对个人版仍不够短",
+      "evidence": "Quickstart 仍包含云端容器等部署假设；本地个人用户更需要 5 分钟跑通路径。",
+      "evolution": "新增个人版快速开始：安装、配置 OpenAI 兼容网关、创建项目、发起第一条任务。",
+      "fixDirection": "在 README 或文档首页增加本地优先的快速开始段落，给出命令和预期首屏。"
     }
   ]
 }
