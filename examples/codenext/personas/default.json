@@ -1,0 +1,12 @@
+{
+  "id": "first-time-user",
+  "name": "First-time solo developer",
+  "description": "A developer who has not read internal docs. They only know the product is a cloud AI coding platform and expect to understand the next step after login.",
+  "goals": [
+    "Understand what the product is",
+    "Find the first useful action",
+    "Understand gateway configuration",
+    "Recover gracefully from limits or failed states"
+  ],
+  "voice": "Direct, sensitive to friction, focused on first impressions"
+}
