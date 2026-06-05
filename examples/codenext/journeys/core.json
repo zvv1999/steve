@@ -1,0 +1,53 @@
+{
+  "id": "codenext-core-product-workflow",
+  "name": "CodeNext core product workflow",
+  "login": true,
+  "viewports": [
+    { "id": "desktop", "width": 1440, "height": 1000 }
+  ],
+  "journeys": [
+    {
+      "id": "home",
+      "name": "Workbench home",
+      "path": "/",
+      "goal": "The user can enter the main coding workbench and see project/session entry points.",
+      "expect": ["CodeNext", "项目", "新建"]
+    },
+    {
+      "id": "settings-gateway",
+      "name": "Gateway readiness UI",
+      "path": "/settings.html",
+      "goal": "The user can verify AI gateway configuration before starting an AI coding session.",
+      "expect": ["AI 网关", "Auth Token"]
+    },
+    {
+      "id": "gateway-logs",
+      "name": "Gateway logs UI",
+      "path": "/proxy-logs.html",
+      "goal": "The user has a visible place to debug AI requests and empty logs do not become a dead end.",
+      "expect": ["网关日志", "还没有日志"]
+    }
+  ],
+  "healthChecks": [
+    {
+      "id": "gateway-models",
+      "name": "Gateway model list",
+      "path": "/api/gateway/models",
+      "expectJson": true,
+      "priority": "P1"
+    },
+    {
+      "id": "projects",
+      "name": "Project list",
+      "path": "/api/projects",
+      "expectJson": true
+    }
+  ],
+  "coreWorkflows": [
+    {
+      "type": "project-lifecycle",
+      "name": "Disposable project lifecycle",
+      "projectPrefix": "steve_core"
+    }
+  ]
+}

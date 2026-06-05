@@ -304,7 +304,152 @@ async function runHealthChecks(context, { baseUrl, journeySet, findings, transcr
   return checks;
 }
 
-function renderReport({ run, rows, findings, consoleEvents, networkEvents, healthChecks }) {
+async function requestJson(context, method, url, body) {
+  const response = await context.request.fetch(url, {
+    method,
+    data: body,
+    timeout: 15000,
+  });
+  const text = await response.text().catch(() => "");
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch {}
+  return { response, status: response.status(), json, text };
+}
+
+function checkCoreStep({ results, findings, id, name, ok, evidence, suggestion, priority = "P1" }) {
+  results.push({ id, name, ok, evidence });
+  if (!ok) {
+    addFinding(findings, {
+      priority,
+      area: "Core product workflow",
+      issue: `Core step failed: ${name}`,
+      evidence,
+      suggestion,
+      autoFixable: false,
+      heuristic: "core-workflow",
+    });
+  }
+}
+
+async function runCoreWorkflows(context, { baseUrl, journeySet, findings, transcript }) {
+  const results = [];
+  for (const workflow of journeySet.coreWorkflows || []) {
+    if (workflow.type !== "project-lifecycle") continue;
+    const projectName = `${workflow.projectPrefix || "steve_core"}_${Date.now()}`;
+    const createUrl = new URL("/api/projects", baseUrl).toString();
+    let projectId = null;
+    let projectPath = null;
+    transcript.push(`## Core workflow: ${workflow.name || workflow.type}\n\n`);
+
+    try {
+      const created = await requestJson(context, "POST", createUrl, { name: projectName });
+      projectId = created.json?.id;
+      projectPath = created.json?.path;
+      checkCoreStep({
+        results,
+        findings,
+        id: "create-project",
+        name: "Create a disposable project",
+        ok: created.status === 200 && Boolean(projectId) && Boolean(projectPath),
+        evidence: `HTTP ${created.status}; id=${projectId || "missing"}; path=${projectPath || "missing"}`,
+        suggestion: "Project creation should return a stable project id and workspace path.",
+      });
+      if (!projectId || !projectPath) continue;
+
+      await writeFile(join(projectPath, "README.md"), "# Steve core audit\n\nInitial content from product workflow.\n", "utf-8");
+      const listUrl = new URL(`/api/projects/${encodeURIComponent(projectId)}/fs/list`, baseUrl).toString();
+      const listed = await requestJson(context, "GET", listUrl);
+      const hasReadme = Array.isArray(listed.json?.entries) && listed.json.entries.some((item) => item.name === "README.md");
+      checkCoreStep({
+        results,
+        findings,
+        id: "list-files",
+        name: "List project files",
+        ok: listed.status === 200 && hasReadme,
+        evidence: `HTTP ${listed.status}; README visible=${hasReadme}`,
+        suggestion: "The file browser should show files present in the project workspace.",
+      });
+
+      const readUrl = new URL(`/api/projects/${encodeURIComponent(projectId)}/fs/read?path=README.md`, baseUrl).toString();
+      const read = await requestJson(context, "GET", readUrl);
+      checkCoreStep({
+        results,
+        findings,
+        id: "read-file",
+        name: "Read a project file",
+        ok: read.status === 200 && /Steve core audit/.test(read.json?.content || ""),
+        evidence: `HTTP ${read.status}; size=${read.json?.size ?? "missing"}`,
+        suggestion: "Opening a text file should return UTF-8 content and metadata.",
+      });
+
+      const writeUrl = new URL(`/api/projects/${encodeURIComponent(projectId)}/fs/write`, baseUrl).toString();
+      const updatedContent = "# Steve core audit\n\nEdited through CodeNext file API.\n";
+      const wrote = await requestJson(context, "POST", writeUrl, { path: "README.md", content: updatedContent });
+      const reread = await requestJson(context, "GET", readUrl);
+      checkCoreStep({
+        results,
+        findings,
+        id: "write-file",
+        name: "Edit and persist a file",
+        ok: wrote.status === 200 && reread.json?.content === updatedContent,
+        evidence: `write HTTP ${wrote.status}; reread matches=${reread.json?.content === updatedContent}`,
+        suggestion: "The simple editor should persist changes and read them back without stale content.",
+      });
+
+      const gitUrl = new URL(`/api/projects/${encodeURIComponent(projectId)}/git-status`, baseUrl).toString();
+      const git = await requestJson(context, "GET", gitUrl);
+      const expectFreshProjectGitRepo = workflow.expectFreshProjectGitRepo === true;
+      checkCoreStep({
+        results,
+        findings,
+        id: "git-status",
+        name: "Read Git status without inheriting the app repository",
+        ok: git.status === 200 && git.json?.isGitRepo === expectFreshProjectGitRepo,
+        evidence: `HTTP ${git.status}; isGitRepo=${git.json?.isGitRepo}`,
+        suggestion: "Fresh projects should live outside the CodeNext app repository unless the user explicitly imports or initializes a Git repo.",
+      });
+
+      const sessionsUrl = new URL(`/api/projects/${encodeURIComponent(projectId)}/sessions`, baseUrl).toString();
+      const sessions = await requestJson(context, "GET", sessionsUrl);
+      checkCoreStep({
+        results,
+        findings,
+        id: "sessions-list",
+        name: "List project sessions",
+        ok: sessions.status === 200 && Array.isArray(sessions.json?.sessions),
+        evidence: `HTTP ${sessions.status}; sessions=${Array.isArray(sessions.json?.sessions) ? sessions.json.sessions.length : "missing"}`,
+        suggestion: "A new project should expose an empty, well-formed session list.",
+      });
+
+      const modelsUrl = new URL("/api/gateway/models", baseUrl).toString();
+      const models = await requestJson(context, "GET", modelsUrl);
+      checkCoreStep({
+        results,
+        findings,
+        id: "gateway-models-core",
+        name: "Discover AI gateway models",
+        ok: models.status === 200 && Array.isArray(models.json?.models) && models.json.models.length > 0,
+        evidence: `HTTP ${models.status}; models=${Array.isArray(models.json?.models) ? models.json.models.length : "missing"}`,
+        suggestion: "Model discovery should prove that the configured AI gateway is ready before the user starts coding.",
+      });
+    } finally {
+      if (projectId) {
+        const deleteUrl = new URL(`/api/projects/${encodeURIComponent(projectId)}`, baseUrl).toString();
+        const deleted = await requestJson(context, "DELETE", deleteUrl).catch((error) => ({ status: 0, error }));
+        results.push({
+          id: "cleanup-project",
+          name: "Cleanup disposable project record",
+          ok: deleted.status >= 200 && deleted.status < 300,
+          evidence: `HTTP ${deleted.status}`,
+        });
+      }
+    }
+  }
+  if (results.length) transcript.push(`${JSON.stringify(results, null, 2)}\n`);
+  return results;
+}
+
+function renderReport({ run, rows, findings, consoleEvents, networkEvents, healthChecks, coreWorkflows }) {
   const lines = [
     "# Product Experience Audit",
     "",
@@ -318,6 +463,7 @@ function renderReport({ run, rows, findings, consoleEvents, networkEvents, healt
     `- Console/Page errors: ${consoleEvents.length}`,
     `- Network 5xx errors: ${networkEvents.length}`,
     `- Health checks: ${healthChecks.filter((item) => item.ok).length}/${healthChecks.length} passed`,
+    `- Core workflow steps: ${coreWorkflows.filter((item) => item.ok).length}/${coreWorkflows.length} passed`,
     "",
     "## Journey Results",
     "",
@@ -368,6 +514,13 @@ function renderReport({ run, rows, findings, consoleEvents, networkEvents, healt
     }
   }
 
+  if (coreWorkflows.length) {
+    lines.push("", "## Core Workflows", "");
+    for (const step of coreWorkflows) {
+      lines.push(`- ${step.ok ? "PASS" : "FAIL"} · ${step.name}: ${redactSecrets(step.evidence)}`);
+    }
+  }
+
   lines.push(
     "",
     "## Codex Control Loop",
@@ -408,6 +561,7 @@ async function runAudit(args) {
   const consoleEvents = [];
   const networkEvents = [];
   let healthChecks = [];
+  let coreWorkflows = [];
   const transcript = [];
 
   const browser = await chromium.launch({ headless: args.headed !== true });
@@ -475,6 +629,7 @@ async function runAudit(args) {
     }
 
     healthChecks = await runHealthChecks(context, { baseUrl, journeySet, findings, transcript });
+    coreWorkflows = await runCoreWorkflows(context, { baseUrl, journeySet, findings, transcript });
   } finally {
     await browser.close();
   }
@@ -508,6 +663,8 @@ async function runAudit(args) {
       networkEvents: networkEvents.length,
       healthChecks: healthChecks.length,
       passedHealthChecks: healthChecks.filter((item) => item.ok).length,
+      coreWorkflowSteps: coreWorkflows.length,
+      passedCoreWorkflowSteps: coreWorkflows.filter((item) => item.ok).length,
     },
   };
 
@@ -518,8 +675,9 @@ async function runAudit(args) {
     writeFile(join(outDir, "console.json"), JSON.stringify(consoleEvents, null, 2)),
     writeFile(join(outDir, "network.json"), JSON.stringify(networkEvents, null, 2)),
     writeFile(join(outDir, "health.json"), JSON.stringify(healthChecks, null, 2)),
+    writeFile(join(outDir, "core-workflows.json"), JSON.stringify(coreWorkflows, null, 2)),
     writeFile(join(outDir, "transcript.md"), transcript.join("\n")),
-    writeFile(join(outDir, "report.md"), renderReport({ run, rows, findings, consoleEvents, networkEvents, healthChecks })),
+    writeFile(join(outDir, "report.md"), renderReport({ run, rows, findings, consoleEvents, networkEvents, healthChecks, coreWorkflows })),
   ]);
 
   console.log(`UX audit written to ${join(outDir, "report.md")}`);

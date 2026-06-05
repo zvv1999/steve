@@ -13,6 +13,7 @@
     "audit": "node src/cli.mjs audit",
     "example:codenext": "node src/cli.mjs audit --config examples/codenext --url http://127.0.0.1:3599 --user ${CODEX_UX_USER:-admin} --pass ${CODEX_UX_PASS:-}",
     "example:codenext:deep": "node src/cli.mjs audit --config examples/codenext --journeys deep --url http://127.0.0.1:3599 --user ${CODEX_UX_USER:-admin} --pass ${CODEX_UX_PASS:-} --out artifacts/ux-audit-deep",
+    "example:codenext:core": "node src/cli.mjs audit --config examples/codenext --journeys core --url http://127.0.0.1:3599 --user ${CODEX_UX_USER:-admin} --pass ${CODEX_UX_PASS:-} --out artifacts/ux-audit-core",
     "test": "node --test tests/*.test.mjs"
   },
   "keywords": [
