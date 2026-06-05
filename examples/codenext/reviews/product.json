@@ -1,0 +1,138 @@
+{
+  "id": "codenext-product-review",
+  "name": "CodeNext product experience review",
+  "workflow": "codenext-product",
+  "login": true,
+  "tempProjectPrefix": "steve_px",
+  "plans": [
+    {
+      "id": "activation",
+      "name": "First activation and empty state",
+      "productQuestion": "Does a first-time user understand what this is, what to do next, and why to continue?",
+      "successSignals": [
+        "Login is smooth",
+        "Empty state has a clear next step",
+        "Create-project entry is visible",
+        "Created project appears without confusion"
+      ],
+      "experienceScope": [
+        "login",
+        "workbench empty state",
+        "create project modal",
+        "post-create state"
+      ]
+    },
+    {
+      "id": "core-coding",
+      "name": "Core coding loop",
+      "productQuestion": "Can the user move from project to a creative AI coding state while understanding project, session, file, and Git concepts?",
+      "successSignals": [
+        "Project can be opened",
+        "Session entry is visible",
+        "Project APIs are stable",
+        "Git status does not mislead fresh projects"
+      ],
+      "experienceScope": [
+        "project open",
+        "session list",
+        "git status"
+      ]
+    },
+    {
+      "id": "ai-readiness",
+      "name": "AI readiness and trust",
+      "productQuestion": "Can the user confirm AI is ready, and do they know where to debug it if it fails?",
+      "successSignals": [
+        "Gateway configuration is visible",
+        "Model list is reachable",
+        "Gateway logs are reachable",
+        "Empty logs explain what happens next"
+      ],
+      "experienceScope": [
+        "settings",
+        "model discovery",
+        "gateway logs"
+      ]
+    },
+    {
+      "id": "ecosystem",
+      "name": "Ecosystem and extension",
+      "productQuestion": "Can the user understand skills and MCP as ways to extend the product?",
+      "successSignals": [
+        "Skill Hub is understandable",
+        "MCP extensions are browsable",
+        "Recommendations connect to user goals"
+      ],
+      "experienceScope": [
+        "Skill Hub",
+        "MCP extensions"
+      ]
+    },
+    {
+      "id": "opensource",
+      "name": "Open-source readiness",
+      "productQuestion": "Can an external developer self-serve through docs, API, import, and setup paths?",
+      "successSignals": [
+        "Docs explain positioning",
+        "Quickstart is short enough",
+        "Direct import route recovers",
+        "API docs are reachable"
+      ],
+      "experienceScope": [
+        "docs overview",
+        "quickstart",
+        "direct import"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "priority": "P1",
+      "planId": "activation",
+      "issue": "The first workbench screen lacks a primary activation CTA",
+      "evidence": "The empty state mainly says to select a project from the left instead of guiding the user through create project, verify gateway, and send first task.",
+      "evolution": "Turn the empty canvas into a three-step activation rail: create project, verify AI gateway, send first task. Hide it after completion.",
+      "fixDirection": "Add a first-run panel in the main canvas with one primary action and two secondary actions."
+    },
+    {
+      "priority": "P1",
+      "planId": "core-coding",
+      "issue": "Project, session, and AI task concepts still require user inference",
+      "evidence": "After creating a project, the user must click the project and then discover the new-session action. The product does not explain that a project is a code directory and a session is one AI work thread.",
+      "evolution": "After project creation, auto-open the project and offer task templates such as inspect this project, create first file, or open terminal.",
+      "fixDirection": "Make successful project creation transition directly into the project context with clear next-task cards."
+    },
+    {
+      "priority": "P2",
+      "planId": "ai-readiness",
+      "issue": "Gateway settings are trustworthy but too implementation-led",
+      "evidence": "The settings copy exposes env, spawn, proxy, and container proxy language. This is useful for debugging, but heavy for first-time setup.",
+      "evolution": "Split settings into a connection status card and an advanced configuration section. Default to model availability, latency, and last request status.",
+      "fixDirection": "Move low-level env/proxy/spawn copy into an Advanced details disclosure."
+    },
+    {
+      "priority": "P2",
+      "planId": "ai-readiness",
+      "issue": "Gateway log empty state does not explain how logs are created",
+      "evidence": "With zero logs, the page still says to select a request from the left.",
+      "evolution": "Explain that logs appear after an AI request, and offer a jump to new session or a test gateway action.",
+      "fixDirection": "Replace the empty detail copy with a next-step empty state."
+    },
+    {
+      "priority": "P2",
+      "planId": "ecosystem",
+      "issue": "Skill Hub is complete, but recommendations are not yet productized around user intent",
+      "evidence": "The page lists many options, but does not explain why a given skill is recommended for the user's current goal.",
+      "evolution": "Wrap the skill search and LLM reranking capability into an intent flow: describe goal, see recommended skills, install, then start a session with those skills active.",
+      "fixDirection": "Add a goal input above recommendations and label why each suggested skill fits."
+    },
+    {
+      "priority": "P2",
+      "planId": "opensource",
+      "issue": "Open-source quickstart is useful but not yet short enough for the personal edition",
+      "evidence": "Quickstart still includes cloud-container deployment assumptions. Local personal users want a five-minute path.",
+      "evolution": "Add a personal-edition quickstart: install, configure OpenAI-compatible gateway, create project, send first task.",
+      "fixDirection": "Add a local-first README/quickstart section with exact commands and expected first screen."
+    }
+  ]
+}

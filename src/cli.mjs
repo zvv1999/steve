@@ -535,6 +535,343 @@ function renderReport({ run, rows, findings, consoleEvents, networkEvents, healt
   return lines.join("\n");
 }
 
+async function screenshotObservation(page, screenshotDir, planId, stepId) {
+  const file = `${safeFileName(`${planId}-${stepId}`)}.png`;
+  await page.screenshot({ path: join(screenshotDir, file), fullPage: true }).catch(() => {});
+  return `screenshots/${file}`;
+}
+
+async function recordObservation({ observations, page, screenshotDir, planId, step, observation, extra = {} }) {
+  observations.push({
+    planId,
+    step,
+    url: page.url(),
+    preview: short(await visibleText(page), 500),
+    screenshot: await screenshotObservation(page, screenshotDir, planId, step),
+    observation,
+    ...extra,
+  });
+}
+
+function renderReviewReport({ startedAt, baseUrl, persona, plans, observations, findings, consoleEvents, networkEvents }) {
+  const lines = [
+    "# Product Experience Review",
+    "",
+    `- Target: ${baseUrl}`,
+    `- Persona: ${persona.name} (${persona.id})`,
+    `- Time: ${startedAt}`,
+    `- Test plans: ${plans.length}`,
+    `- Observations: ${observations.length}`,
+    `- Product findings: ${findings.length}`,
+    `- Console warnings/errors: ${consoleEvents.length}`,
+    `- Network 5xx: ${networkEvents.length}`,
+    "",
+    "## Product Test Plans",
+    "",
+  ];
+
+  for (const plan of plans) {
+    lines.push(`### ${plan.name}`, "");
+    lines.push(`- Product question: ${plan.productQuestion}`);
+    lines.push(`- Success signals: ${(plan.successSignals || []).join(" / ")}`);
+    lines.push(`- Experience scope: ${(plan.experienceScope || []).join(" / ")}`);
+    lines.push("");
+  }
+
+  lines.push("## Hands-on Observations", "");
+  for (const item of observations) {
+    lines.push(`- [${item.planId}] ${item.step}: ${item.observation || item.evidence || item.preview}${item.screenshot ? ` (${item.screenshot})` : ""}`);
+  }
+
+  lines.push("", "## Findings And Evolution Directions", "");
+  if (!findings.length) {
+    lines.push("No product findings from this review pass.");
+  } else {
+    for (const item of findings) {
+      lines.push(`### ${item.priority} · ${item.issue}`, "");
+      lines.push(`- Plan: ${item.planId}`);
+      lines.push(`- Evidence: ${item.evidence}`);
+      lines.push(`- Evolution: ${item.evolution}`);
+      if (item.fixDirection) lines.push(`- Fix direction: ${item.fixDirection}`);
+      lines.push("");
+    }
+  }
+
+  if (consoleEvents.length) {
+    lines.push("## Console Warnings/Errors", "");
+    for (const event of consoleEvents.slice(0, 50)) {
+      lines.push(`- [${event.type}] ${event.url || ""} ${event.text}`);
+    }
+    lines.push("");
+  }
+
+  if (networkEvents.length) {
+    lines.push("## Network 5xx", "");
+    for (const event of networkEvents.slice(0, 50)) {
+      lines.push(`- HTTP ${event.status}: ${event.url}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+async function runCodeNextProductReview({ page, context, baseUrl, screenshotDir, observations, findings, review }) {
+  const plans = review.plans || [];
+  const findPlan = (id) => plans.find((plan) => plan.id === id) || { id, name: id };
+  let tempProjectId = null;
+  const tempProjectName = `${review.tempProjectPrefix || "steve_px"}_${Date.now()}`;
+
+  const addApiObservation = ({ planId, step, ok, evidence }) => {
+    observations.push({ planId, step, ok, evidence: short(evidence, 500) });
+  };
+
+  try {
+    await recordObservation({
+      observations,
+      page,
+      screenshotDir,
+      planId: "activation",
+      step: "logged-in-home",
+      observation: "Login lands in the workbench; project sidebar and utility links are visible, but the central canvas still waits for the user to infer the first move.",
+    });
+
+    await page.locator("#new-project-btn").click();
+    await page.waitForSelector("#modal-backdrop:not([hidden])", { timeout: 4000 }).catch(() => {});
+    await recordObservation({
+      observations,
+      page,
+      screenshotDir,
+      planId: "activation",
+      step: "new-project-modal",
+      observation: "The create-project modal exposes blank project, Git clone, and local session import. The capability is strong, but the choice density is high for first activation.",
+    });
+
+    await page.locator("#new-project-name").fill(tempProjectName);
+    await page.locator("#modal-create-btn").click();
+    await page.waitForSelector("#modal-backdrop[hidden]", { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(1200);
+    await recordObservation({
+      observations,
+      page,
+      screenshotDir,
+      planId: "activation",
+      step: "project-created-ui",
+      observation: "After project creation the project appears in the sidebar, but the main canvas still explains the project/session relationship instead of moving the user forward.",
+    });
+
+    const projects = await requestJson(context, "GET", new URL("/api/projects", baseUrl).toString());
+    const temp = Array.isArray(projects.json) ? projects.json.find((item) => item.name === tempProjectName) : null;
+    tempProjectId = temp?.id || null;
+    addApiObservation({
+      planId: "activation",
+      step: "project-created-api",
+      ok: Boolean(tempProjectId),
+      evidence: `projects HTTP ${projects.status}; found=${Boolean(tempProjectId)}`,
+    });
+
+    if (tempProjectId) {
+      await page.getByText(tempProjectName, { exact: false }).click().catch(() => {});
+      await page.waitForTimeout(1000);
+      await recordObservation({
+        observations,
+        page,
+        screenshotDir,
+        planId: "core-coding",
+        step: "project-opened",
+        observation: "Opening the project reveals the new-session entry. The product is ready to work, but it still makes the user assemble project, session, and AI task concepts alone.",
+      });
+
+      const sessions = await requestJson(context, "GET", new URL(`/api/projects/${encodeURIComponent(tempProjectId)}/sessions`, baseUrl).toString());
+      const git = await requestJson(context, "GET", new URL(`/api/projects/${encodeURIComponent(tempProjectId)}/git-status`, baseUrl).toString());
+      addApiObservation({
+        planId: "core-coding",
+        step: "sessions-api",
+        ok: Array.isArray(sessions.json?.sessions),
+        evidence: `HTTP ${sessions.status}; sessions=${sessions.json?.sessions?.length ?? "missing"}`,
+      });
+      addApiObservation({
+        planId: "core-coding",
+        step: "git-status-api",
+        ok: git.status === 200 && git.json?.isGitRepo === false,
+        evidence: `HTTP ${git.status}; isGitRepo=${git.json?.isGitRepo}`,
+      });
+    }
+
+    await page.goto(new URL("/settings.html", baseUrl).toString(), { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle", { timeout: 4000 }).catch(() => {});
+    await recordObservation({
+      observations,
+      page,
+      screenshotDir,
+      planId: "ai-readiness",
+      step: "settings",
+      observation: "Gateway settings are powerful and transparent, but the page leads with implementation language such as env, spawn, and proxy.",
+    });
+    const models = await requestJson(context, "GET", new URL("/api/gateway/models", baseUrl).toString());
+    addApiObservation({
+      planId: "ai-readiness",
+      step: "models-api",
+      ok: Array.isArray(models.json?.models) && models.json.models.length > 0,
+      evidence: `HTTP ${models.status}; models=${models.json?.models?.length ?? "missing"}`,
+    });
+
+    await page.goto(new URL("/proxy-logs.html", baseUrl).toString(), { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle", { timeout: 4000 }).catch(() => {});
+    await recordObservation({
+      observations,
+      page,
+      screenshotDir,
+      planId: "ai-readiness",
+      step: "gateway-logs-empty",
+      observation: "The gateway log empty state is stable, but it says to select a request even when no request exists.",
+    });
+
+    await page.goto(new URL("/skillhub.html", baseUrl).toString(), { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+    await recordObservation({
+      observations,
+      page,
+      screenshotDir,
+      planId: "ecosystem",
+      step: "skillhub",
+      observation: "Skill Hub communicates extensibility through Git import, marketplace, and local skills. The next product step is goal-based recommendation, not just browsing.",
+    });
+
+    await page.goto(new URL("/mcp.html", baseUrl).toString(), { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+    await recordObservation({
+      observations,
+      page,
+      screenshotDir,
+      planId: "ecosystem",
+      step: "mcp",
+      observation: "MCP extensions are concrete and understandable, with install state and use cases visible.",
+    });
+
+    await page.goto(new URL("/docs/", baseUrl).toString(), { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+    await recordObservation({
+      observations,
+      page,
+      screenshotDir,
+      planId: "opensource",
+      step: "docs-overview",
+      observation: "Docs explain the cloud AI coding platform positioning clearly enough for external readers.",
+    });
+
+    await page.goto(new URL("/docs/quickstart/", baseUrl).toString(), { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+    await recordObservation({
+      observations,
+      page,
+      screenshotDir,
+      planId: "opensource",
+      step: "docs-quickstart",
+      observation: "Quickstart gives a path, but it still carries cloud-container assumptions. A personal open-source quickstart should be shorter and more local-first.",
+    });
+
+    await page.goto(new URL("/import.html", baseUrl).toString(), { waitUntil: "domcontentloaded" });
+    await recordObservation({
+      observations,
+      page,
+      screenshotDir,
+      planId: "opensource",
+      step: "import-direct",
+      observation: "The direct import route now recovers gracefully and points the user back to the main UI.",
+    });
+  } finally {
+    if (tempProjectId) {
+      await requestJson(context, "DELETE", new URL(`/api/projects/${encodeURIComponent(tempProjectId)}`, baseUrl).toString()).catch(() => {});
+    }
+  }
+
+  for (const item of review.findings || []) {
+    findings.push({
+      priority: item.priority || "P2",
+      planId: findPlan(item.planId).id,
+      issue: item.issue,
+      evidence: item.evidence,
+      evolution: item.evolution,
+      fixDirection: item.fixDirection,
+    });
+  }
+}
+
+async function runReview(args) {
+  const configDir = resolve(args.config || "examples/codenext");
+  const outDir = resolve(args.out || "artifacts/product-experience-review");
+  const screenshotDir = join(outDir, "screenshots");
+  const baseUrl = args.url || "http://127.0.0.1:3599";
+  const username = args.user || process.env.CODEX_UX_USER || "admin";
+  const password = args.pass || process.env.CODEX_UX_PASS;
+  const startedAt = new Date().toISOString();
+  const [persona, review] = await Promise.all([
+    readJson(join(configDir, "personas", `${args.persona || "default"}.json`)),
+    readJson(join(configDir, "reviews", `${args.review || "product"}.json`)),
+  ]);
+
+  await rm(outDir, { recursive: true, force: true });
+  await mkdir(screenshotDir, { recursive: true });
+
+  const observations = [];
+  const findings = [];
+  const consoleEvents = [];
+  const networkEvents = [];
+
+  const browser = await chromium.launch({ headless: args.headed !== true });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleEvents.push({ type: message.type(), text: short(message.text(), 500), url: page.url() });
+    }
+  });
+  page.on("pageerror", (error) => {
+    consoleEvents.push({ type: "pageerror", text: short(error.message, 500), url: page.url() });
+  });
+  page.on("response", (response) => {
+    if (response.status() >= 500) {
+      networkEvents.push({ status: response.status(), url: response.url() });
+    }
+  });
+
+  try {
+    if (review.login !== false) {
+      if (!password) throw new Error("Review password was not provided. Pass --pass or set CODEX_UX_PASS.");
+      const ok = await login(page, { baseUrl, username, password, findings, transcript: [] });
+      if (!ok) throw new Error("Login failed.");
+    }
+    if (review.workflow !== "codenext-product") {
+      throw new Error(`Unknown review workflow: ${review.workflow}`);
+    }
+    await runCodeNextProductReview({ page, context, baseUrl, screenshotDir, observations, findings, review });
+  } finally {
+    await browser.close();
+  }
+
+  await Promise.all([
+    writeFile(join(outDir, "plans.json"), JSON.stringify(review.plans || [], null, 2)),
+    writeFile(join(outDir, "observations.json"), JSON.stringify(observations, null, 2)),
+    writeFile(join(outDir, "findings.json"), JSON.stringify(findings, null, 2)),
+    writeFile(join(outDir, "console.json"), JSON.stringify(consoleEvents, null, 2)),
+    writeFile(join(outDir, "network.json"), JSON.stringify(networkEvents, null, 2)),
+    writeFile(join(outDir, "report.md"), renderReviewReport({
+      startedAt,
+      baseUrl,
+      persona,
+      plans: review.plans || [],
+      observations,
+      findings,
+      consoleEvents,
+      networkEvents,
+    })),
+  ]);
+
+  console.log(`Product review written to ${join(outDir, "report.md")}`);
+  console.log(`Product findings written to ${join(outDir, "findings.json")}`);
+}
+
 async function runAudit(args) {
   const configDir = resolve(args.config || "examples/codenext");
   const outDir = resolve(args.out || "artifacts/ux-audit");
@@ -687,9 +1024,11 @@ async function runAudit(args) {
 }
 
 const args = parseArgs(process.argv);
-if (args.command !== "audit") {
+if (args.command === "audit") {
+  await runAudit(args);
+} else if (args.command === "review") {
+  await runReview(args);
+} else {
   console.error(`Unknown command: ${args.command}`);
   process.exit(2);
 }
-
-await runAudit(args);

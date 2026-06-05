@@ -28,6 +28,16 @@ npx playwright install chromium
 npm run example:codenext
 ```
 
+For a product-manager style hands-on review, use:
+
+```bash
+CODEX_UX_PASS=admin123 npm run example:codenext:review
+```
+
+`audit` answers "did the scripted paths pass?".
+
+`review` answers "what did the product feel like, what broke the experience, and where should it evolve next?" It writes product test plans, hands-on observations, screenshots, findings, and evolution directions.
+
 Or with explicit options:
 
 ```bash
@@ -61,6 +71,19 @@ artifacts/ux-audit/
   screenshots/
 ```
 
+Product reviews write:
+
+```text
+artifacts/product-experience-review/
+  plans.json
+  observations.json
+  findings.json
+  console.json
+  network.json
+  report.md
+  screenshots/
+```
+
 ## Core Idea
 
 The product experience agent follows Codex's work logic:
@@ -81,6 +104,7 @@ Each product has a config directory:
 examples/codenext/
   personas/default.json
   journeys/default.json
+  reviews/product.json
   heuristics/default.json
 ```
 
@@ -89,6 +113,8 @@ examples/codenext/
 `journeys` describes repeatable user paths.
 
 `heuristics` describes product smoothness rules such as dead ends, internal leaks, implementation-detail copy, missing CTAs, and console errors.
+
+`reviews` describes product test plans, success signals, hands-on workflow scope, and evolution-oriented findings.
 
 ## License
 
