@@ -6,7 +6,8 @@ test("example config files are valid JSON", async () => {
   const files = [
     "examples/codenext/personas/default.json",
     "examples/codenext/journeys/default.json",
-    "examples/codenext/heuristics/default.json"
+    "examples/codenext/heuristics/default.json",
+    "examples/codenext/visual/skillhub.json"
   ];
 
   for (const file of files) {

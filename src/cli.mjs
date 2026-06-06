@@ -39,6 +39,39 @@ function safeFileName(text) {
   return String(text || "journey").replace(/[^\w\u4e00-\u9fa5-]+/g, "-");
 }
 
+function parseCookieJar(text) {
+  const cookies = [];
+  for (const line of String(text || "").split(/\r?\n/)) {
+    if (!line) continue;
+    if (line.startsWith("#") && !line.startsWith("#HttpOnly_")) continue;
+    const parts = line.split(/\t/);
+    if (parts.length < 7) continue;
+    const [domain, , path, secure, expires, name, value] = parts;
+    if (!name || !value) continue;
+    cookies.push({
+      name,
+      value,
+      domain: domain.replace(/^#HttpOnly_/, "").replace(/^\./, "") || "127.0.0.1",
+      path: path || "/",
+      expires: Number(expires) > 0 ? Number(expires) : undefined,
+      httpOnly: false,
+      secure: String(secure).toUpperCase() === "TRUE",
+      sameSite: "Lax",
+    });
+  }
+  return cookies;
+}
+
+async function loadCookieJar(path, host) {
+  if (!path) return [];
+  const text = await readFile(path, "utf-8").catch(() => "");
+  if (!text) return [];
+  return parseCookieJar(text).map((cookie) => ({
+    ...cookie,
+    domain: host || cookie.domain,
+  }));
+}
+
 function addFinding(findings, item) {
   findings.push({
     id: `ux-${String(findings.length + 1).padStart(3, "0")}`,
@@ -872,6 +905,249 @@ async function runReview(args) {
   console.log(`产品发现已写入 ${join(outDir, "findings.json")}`);
 }
 
+async function runVisualStep(page, step) {
+  if (step.type === "fill") {
+    await page.locator(step.selector).fill(step.value || "");
+    return;
+  }
+  if (step.type === "clickText") {
+    const locator = page.locator(step.selector).filter({ hasText: step.text }).first();
+    await locator.click();
+    return;
+  }
+  if (step.type === "click") {
+    await page.locator(step.selector).click();
+    return;
+  }
+  if (step.type === "wait") {
+    await page.waitForTimeout(Number(step.ms) || 100);
+    return;
+  }
+  throw new Error(`Unknown visual step type: ${step.type}`);
+}
+
+async function inspectVisualState(page, viewport, visual) {
+  return page.evaluate(({ viewport, selectors }) => {
+    const visible = (el) => {
+      const r = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return r.width > 0 && r.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+    };
+    const text = (selector) => Array.from(document.querySelectorAll(selector || ""))
+      .filter(visible)
+      .map((el) => el.textContent.trim())
+      .filter(Boolean);
+    const count = (selector) => Array.from(document.querySelectorAll(selector || "")).filter(visible).length;
+    const overflowElements = Array.from(document.querySelectorAll(selectors.overflowTargets || "button, a, input"))
+      .filter(visible)
+      .filter((el) => el.scrollWidth > el.clientWidth + 2 || el.scrollHeight > el.clientHeight + 2)
+      .slice(0, 12)
+      .map((el) => ({
+        tag: el.tagName.toLowerCase(),
+        className: String(el.className || "").slice(0, 120),
+        text: el.textContent.trim().replace(/\s+/g, " ").slice(0, 80),
+        clientWidth: el.clientWidth,
+        scrollWidth: el.scrollWidth,
+        clientHeight: el.clientHeight,
+        scrollHeight: el.scrollHeight,
+      }));
+    const smallTargets = Array.from(document.querySelectorAll("button, input, a, textarea, select"))
+      .filter(visible)
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          text: el.textContent.trim() || el.getAttribute("placeholder") || el.getAttribute("aria-label") || el.tagName,
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+        };
+      })
+      .filter((r) => r.width < 32 || r.height < 32)
+      .slice(0, 12);
+    return {
+      viewport,
+      title: document.title,
+      url: location.href,
+      bodyWidth: document.body.scrollWidth,
+      viewportWidth: window.innerWidth,
+      hasHorizontalOverflow: document.body.scrollWidth > window.innerWidth + 2,
+      cardCount: count(selectors.cards),
+      marketCardCount: count(selectors.marketCards),
+      curatedCardCount: count(selectors.curatedCards),
+      scenarioButtons: text(selectors.scenarioButtons),
+      filters: text(selectors.filters),
+      groupTitles: text(selectors.groupTitles),
+      matchReasons: text(selectors.matchReasons),
+      stats: document.querySelector(selectors.stats || "")?.textContent.trim() || "",
+      notice: document.querySelector(selectors.notice || "")?.textContent.trim() || "",
+      emptyText: document.querySelector(".sk-empty")?.textContent.trim() || "",
+      overflowElements,
+      smallTargets,
+    };
+  }, { viewport, selectors: visual.selectors || {} });
+}
+
+function pushVisualIssue(issues, points, title, detail) {
+  issues.push({ points, title, detail: redactSecrets(detail || "") });
+}
+
+function scoreVisual(results, visual) {
+  const issues = [];
+  const requirements = visual.requirements || {};
+  for (const result of results) {
+    if (result.consoleErrors.length) {
+      pushVisualIssue(issues, 8, `${result.viewport} 有控制台错误`, result.consoleErrors.slice(0, 5).join("\n"));
+    }
+    if (result.failedRequests.length) {
+      pushVisualIssue(issues, 5, `${result.viewport} 有失败请求`, result.failedRequests.slice(0, 5).join("\n"));
+    }
+    for (const state of result.states) {
+      if (state.hasHorizontalOverflow) {
+        pushVisualIssue(issues, 10, `${state.viewport} 出现横向溢出`, `body ${state.bodyWidth}px > viewport ${state.viewportWidth}px`);
+      }
+      if (state.overflowElements.length) {
+        pushVisualIssue(issues, 6, `${state.viewport} 有元素内容溢出`, JSON.stringify(state.overflowElements.slice(0, 4), null, 2));
+      }
+      if (state.smallTargets.length > (requirements.maxSmallTargets ?? 3)) {
+        pushVisualIssue(issues, 4, `${state.viewport} 有过小点击目标`, JSON.stringify(state.smallTargets.slice(0, 4), null, 2));
+      }
+      for (const text of requirements.statsIncludes || []) {
+        if (!state.stats.includes(text)) {
+          pushVisualIssue(issues, 5, `${state.viewport} 来源统计不清晰`, state.stats || "无统计文本");
+        }
+      }
+      if (state.scenarioButtons.length < (requirements.minScenarioButtons || 0)) {
+        pushVisualIssue(issues, 8, `${state.viewport} 场景入口不足`, state.scenarioButtons.join(" / "));
+      }
+      if (requirements.desktopRequiresGroups && state.viewport.includes("desktop") && !state.groupTitles.length) {
+        pushVisualIssue(issues, 6, `${state.viewport} 官方能力没有分组展示`, "缺少分组标题");
+      }
+    }
+    for (const interaction of visual.interactions || []) {
+      const state = result.states.find((item) => item.id === interaction.id);
+      if (!state) continue;
+      if (interaction.expectMatchReasons && !state.matchReasons.length) {
+        pushVisualIssue(issues, 7, `${result.viewport} 搜索结果缺少命中解释`, `${interaction.name} 未出现匹配原因`);
+      }
+      if (interaction.expectGroupTitle && !state.groupTitles.includes(interaction.expectGroupTitle)) {
+        pushVisualIssue(issues, 6, `${result.viewport} 场景筛选未命中 ${interaction.expectGroupTitle}`, state.groupTitles.join(" / "));
+      }
+    }
+  }
+  const score = Math.max(0, 100 - issues.reduce((sum, item) => sum + item.points, 0));
+  return { score, issues };
+}
+
+function renderVisualReport({ visual, baseUrl, results, score }) {
+  const lines = [
+    "# Steve 视觉体验评分报告",
+    "",
+    `- 对象: ${visual.name || visual.id}`,
+    `- 页面: ${new URL(visual.path || "/", baseUrl).toString()}`,
+    `- 评分: ${score.score}/100`,
+    `- 阈值: ${visual.minScore || 92}`,
+    `- 结论: ${score.score >= (visual.minScore || 92) ? "通过" : "未通过"}`,
+    "",
+    "## 截图",
+  ];
+  for (const result of results) {
+    for (const state of result.states) {
+      lines.push(`- ${state.viewport}: ${state.screenshot}`);
+    }
+  }
+  lines.push("", "## 页面状态");
+  for (const result of results) {
+    const initial = result.states[0];
+    lines.push(`- ${result.viewport}: 场景入口 ${initial.scenarioButtons.length} 个，官方分组 ${initial.groupTitles.length} 个，卡片 ${initial.cardCount} 个`);
+  }
+  lines.push("", "## 问题清单");
+  if (!score.issues.length) {
+    lines.push("- 未发现阻断性体验问题。");
+  } else {
+    for (const item of score.issues) {
+      lines.push(`- 扣 ${item.points} 分: ${item.title}`);
+      if (item.detail) lines.push(`  ${item.detail.replace(/\n/g, "\n  ")}`);
+    }
+  }
+  if (visual.advice?.length) {
+    lines.push("", "## Steve 建议");
+    for (const item of visual.advice) lines.push(`- ${item}`);
+  }
+  return lines.join("\n");
+}
+
+async function runVisual(args) {
+  const configDir = resolve(args.config || "examples/codenext");
+  const visual = await readJson(join(configDir, "visual", `${args.visual || "skillhub"}.json`));
+  const outDir = resolve(args.out || "artifacts/visual-score");
+  const screenshotDir = join(outDir, "screenshots");
+  const baseUrl = args.url || "http://127.0.0.1:3599";
+  const base = new URL(baseUrl);
+  await rm(outDir, { recursive: true, force: true });
+  await mkdir(screenshotDir, { recursive: true });
+
+  const browser = await chromium.launch({ headless: args.headed !== true });
+  const results = [];
+  try {
+    for (const viewport of visual.viewports || [{ id: "desktop", width: 1440, height: 1000 }]) {
+      const context = await browser.newContext({
+        viewport: { width: viewport.width, height: viewport.height },
+        deviceScaleFactor: viewport.deviceScaleFactor || 1,
+      });
+      const cookies = await loadCookieJar(args["cookie-jar"] || process.env.STEVE_COOKIE_JAR, base.hostname);
+      if (cookies.length) await context.addCookies(cookies);
+      const page = await context.newPage();
+      const consoleErrors = [];
+      const failedRequests = [];
+      page.on("console", (message) => {
+        if (message.type() === "error") consoleErrors.push(short(message.text(), 500));
+      });
+      page.on("pageerror", (error) => {
+        consoleErrors.push(short(error.message, 500));
+      });
+      page.on("requestfailed", (request) => {
+        failedRequests.push(`${request.method()} ${request.url()}`);
+      });
+
+      const states = [];
+      await page.goto(new URL(visual.path || "/", baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: 20000 });
+      if (visual.selectors?.ready) await page.waitForSelector(visual.selectors.ready, { timeout: 12000 });
+      if (visual.selectors?.cards) await page.waitForSelector(visual.selectors.cards, { timeout: 12000 });
+      await page.waitForTimeout(300);
+      const initialShot = `screenshots/${safeFileName(`${viewport.id}-initial`)}.png`;
+      await page.screenshot({ path: join(outDir, initialShot), fullPage: true });
+      states.push({
+        id: "initial",
+        screenshot: initialShot,
+        ...(await inspectVisualState(page, viewport.id, visual)),
+      });
+
+      for (const interaction of visual.interactions || []) {
+        for (const step of interaction.steps || []) await runVisualStep(page, step);
+        const shot = `screenshots/${safeFileName(`${viewport.id}-${interaction.id}`)}.png`;
+        await page.screenshot({ path: join(outDir, shot), fullPage: true });
+        states.push({
+          id: interaction.id,
+          screenshot: shot,
+          ...(await inspectVisualState(page, `${viewport.id}-${interaction.id}`, visual)),
+        });
+      }
+      results.push({ viewport: viewport.id, states, consoleErrors, failedRequests });
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+  }
+
+  const score = scoreVisual(results, visual);
+  await Promise.all([
+    writeFile(join(outDir, "report.json"), JSON.stringify({ visual, results, score }, null, 2)),
+    writeFile(join(outDir, "report.md"), renderVisualReport({ visual, baseUrl, results, score })),
+  ]);
+  console.log(`视觉评分报告已写入 ${join(outDir, "report.md")}`);
+  console.log(`视觉评分: ${score.score}/100`);
+  if (score.score < (visual.minScore || 92)) process.exitCode = 1;
+}
+
 async function runAudit(args) {
   const configDir = resolve(args.config || "examples/codenext");
   const outDir = resolve(args.out || "artifacts/ux-audit");
@@ -1028,6 +1304,8 @@ if (args.command === "audit") {
   await runAudit(args);
 } else if (args.command === "review") {
   await runReview(args);
+} else if (args.command === "visual") {
+  await runVisual(args);
 } else {
   console.error(`Unknown command: ${args.command}`);
   process.exit(2);

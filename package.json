@@ -15,6 +15,7 @@
     "example:codenext:deep": "node src/cli.mjs audit --config examples/codenext --journeys deep --url http://127.0.0.1:3599 --user ${CODEX_UX_USER:-admin} --pass ${CODEX_UX_PASS:-} --out artifacts/ux-audit-deep",
     "example:codenext:core": "node src/cli.mjs audit --config examples/codenext --journeys core --url http://127.0.0.1:3599 --user ${CODEX_UX_USER:-admin} --pass ${CODEX_UX_PASS:-} --out artifacts/ux-audit-core",
     "example:codenext:review": "node src/cli.mjs review --config examples/codenext --review product --url http://127.0.0.1:3599 --user ${CODEX_UX_USER:-admin} --pass ${CODEX_UX_PASS:-} --out artifacts/product-experience-review",
+    "example:codenext:visual": "node src/cli.mjs visual --config examples/codenext --visual skillhub --url http://127.0.0.1:3599 --cookie-jar ${STEVE_COOKIE_JAR:-/tmp/codenext-local-cookiejar} --out artifacts/visual-score-skillhub",
     "test": "node --test tests/*.test.mjs"
   },
   "keywords": [

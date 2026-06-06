@@ -34,9 +34,23 @@ For a product-manager style hands-on review, use:
 CODEX_UX_PASS=admin123 npm run example:codenext:review
 ```
 
+For a Playwright visual score pass on the Skill Hub, use:
+
+```bash
+npm run example:codenext:visual
+```
+
+The visual pass captures desktop/mobile screenshots, checks console and failed requests, scores horizontal overflow, small click targets, scenario navigation, grouped official skills, search match reasons, and writes a Chinese report. For enterprise sessions, pass a Netscape cookie jar:
+
+```bash
+STEVE_COOKIE_JAR=/tmp/codenext-local-cookiejar npm run example:codenext:visual
+```
+
 `audit` answers "did the scripted paths pass?".
 
 `review` answers "what did the product feel like, what broke the experience, and where should it evolve next?" It writes product test plans, hands-on observations, screenshots, findings, and evolution directions.
+
+`visual` answers "does the UI feel polished enough to pass a score threshold?" It is meant to run after Codex repairs the product and before it writes the final report.
 
 Or with explicit options:
 
@@ -80,6 +94,15 @@ artifacts/product-experience-review/
   findings.json
   console.json
   network.json
+  report.md
+  screenshots/
+```
+
+Visual scores write:
+
+```text
+artifacts/visual-score-skillhub/
+  report.json
   report.md
   screenshots/
 ```
