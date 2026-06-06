@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Steve</title>
+  <style>
+    :root {
+      --bg: #f6f7f4;
+      --panel: #fff;
+      --line: #dde5dc;
+      --text: #182119;
+      --muted: #667066;
+      --accent: #0f766e;
+      --accent-dark: #0a5e58;
+      --warn: #a15c07;
+      --danger: #982f2f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, select, input { font: inherit; }
+    button, select, input {
+      height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      padding: 0 12px;
+    }
+    button { cursor: pointer; }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    button.primary:hover { background: var(--accent-dark); }
+    button:disabled { opacity: .55; cursor: wait; }
+    .page {
+      width: min(1420px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 28px 0 44px;
+    }
+    .top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 30px;
+      letter-spacing: 0;
+      line-height: 1.15;
+    }
+    .lead {
+      max-width: 800px;
+      margin: 8px 0 0;
+      line-height: 1.55;
+      color: var(--muted);
+    }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .secondary-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
+    .ghost-link {
+      border: 0;
+      height: auto;
+      padding: 0;
+      background: transparent;
+      color: var(--muted);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .target {
+      display: grid;
+      grid-template-columns: 220px 260px minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    .target p { margin: 0; color: var(--muted); line-height: 1.45; }
+    .health {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr);
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .summary-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 16px;
+    }
+    .summary-card h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+    .summary-card strong { color: var(--text); }
+    .insights {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .insight {
+      border-left: 3px solid var(--accent);
+      padding-left: 10px;
+      color: #445149;
+      line-height: 1.45;
+      font-size: 13px;
+    }
+    .stat {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 14px;
+    }
+    .stat b { display: block; font-size: 24px; margin-bottom: 7px; }
+    .stat span { color: var(--muted); font-size: 13px; }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 410px;
+      gap: 14px;
+      align-items: start;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .toolbar input { flex: 1; min-width: 0; }
+    .items { display: grid; gap: 12px; }
+    .item, .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 15px;
+    }
+    .item-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+    }
+    h2 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+    .badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: #edf2ed;
+      color: #435047;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .badge.good { background: #e4f4ee; color: #0d6047; }
+    .badge.warn { background: #fff1d6; color: var(--warn); }
+    .badge.danger { background: #fbe7e7; color: var(--danger); }
+    .score {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      display: grid;
+      place-content: center;
+      background: #effaf5;
+      border: 1px solid #b8d9cc;
+      color: var(--accent-dark);
+      font-weight: 700;
+      text-align: center;
+    }
+    .score span { display: block; font-size: 11px; color: var(--muted); font-weight: 500; }
+    p { margin: 0 0 8px; color: var(--muted); line-height: 1.55; }
+    .path {
+      margin: 10px 0;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfb;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+      color: #38443c;
+    }
+    .checks { display: grid; gap: 6px; margin: 10px 0; }
+    .check {
+      display: grid;
+      grid-template-columns: 16px minmax(0, 1fr);
+      gap: 8px;
+      font-size: 13px;
+      color: #445149;
+      line-height: 1.45;
+    }
+    .check::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-top: 6px;
+    }
+    .item-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .item-actions.collapsed { display: none; }
+    .side { display: grid; gap: 12px; position: sticky; top: 16px; }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: #354239;
+      font-size: 12px;
+      line-height: 1.5;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .empty {
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 26px;
+      text-align: center;
+      color: var(--muted);
+      background: rgba(255,255,255,.62);
+    }
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      display: none;
+      max-width: min(420px, calc(100vw - 36px));
+      background: #15211a;
+      color: #fff;
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+    .toast.show { display: block; }
+    @media (max-width: 980px) {
+      .page { width: min(100vw - 24px, 860px); }
+      .top, .target { display: grid; }
+      .actions { justify-content: flex-start; }
+      .secondary-actions { justify-content: flex-start; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .summary { grid-template-columns: 1fr; }
+      .layout { grid-template-columns: 1fr; }
+      .side { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="top">
+      <div>
+        <h1>Steve</h1>
+        <p class="lead">Steve 会持续体验产品、派生 Codex App 任务、回收报告，并把真正需要你决策的优化点放到这里。</p>
+      </div>
+      <div class="actions">
+        <button class="primary" id="auto">让 Steve 继续工作</button>
+        <div class="secondary-actions">
+          <button class="ghost-link" id="refresh">刷新</button>
+          <button class="ghost-link" id="toggle-advanced">高级操作</button>
+          <button class="ghost-link advanced-only" id="create" hidden>只生成计划</button>
+          <button class="ghost-link advanced-only" id="merge" hidden>合并计划</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="target">
+      <select id="target"></select>
+      <select id="run"></select>
+      <p id="target-info">选择目标项目</p>
+      <div class="health" id="target-health"></div>
+    </section>
+
+    <section class="stats" id="stats"></section>
+
+    <section class="summary" id="summary"></section>
+
+    <section class="layout">
+      <div>
+        <div class="toolbar" id="toolbar" hidden>
+          <input id="search" placeholder="搜索候选点、agent、skill 或建议动作" />
+        </div>
+        <div class="items" id="items"></div>
+      </div>
+      <aside class="side">
+        <section class="panel">
+          <h2>中文报告</h2>
+          <pre id="report">暂无报告</pre>
+        </section>
+        <section class="panel">
+          <h2>合并计划</h2>
+          <pre id="plan">暂无合并计划</pre>
+        </section>
+      </aside>
+    </section>
+  </main>
+  <div class="toast" id="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

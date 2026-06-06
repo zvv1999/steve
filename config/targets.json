@@ -1,0 +1,31 @@
+{
+  "targets": [
+    {
+      "id": "codenext",
+      "name": "CodeNext",
+      "productMode": "enterprise",
+      "root": "/Users/cds-dn419/PycharmProjects/code-next",
+      "appUrl": "http://127.0.0.1:3599",
+      "baseBranch": "main",
+      "worktreeDir": "/Users/cds-dn419/PycharmProjects/steve/worktrees/codenext",
+      "visualScore": {
+        "enabled": true,
+        "adapter": "codex-product-experience-agent",
+        "nodeBin": "/Users/cds-dn419/PycharmProjects/code-next/codenext/.node24/bin/node",
+        "script": "/Users/cds-dn419/PycharmProjects/codex-product-experience-agent/src/cli.mjs",
+        "config": "/Users/cds-dn419/PycharmProjects/codex-product-experience-agent/examples/codenext",
+        "visual": "skillhub",
+        "cookieJar": "/tmp/steve-codenext-cookiejar",
+        "username": "admin",
+        "password": "admin123",
+        "minScore": 92
+      },
+      "nightWindow": {
+        "timezone": "Asia/Shanghai",
+        "slots": ["01:00", "03:00", "05:00"],
+        "targetHours": 8
+      },
+      "description": "CodeNext enterprise/local product target. Steve only creates external worktrees and reports; CodeNext keeps only product code."
+    }
+  ]
+}

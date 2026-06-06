@@ -1,0 +1,6 @@
+.steve/
+artifacts/
+worktrees/
+node_modules/
+.DS_Store
+*.log
