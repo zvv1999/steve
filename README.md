@@ -47,3 +47,44 @@ STEVE_CODEX_EXECUTOR=cli CODEX_BIN=/path/to/codex npm start
 ```
 
 For product use, prefer `app-handoff` so Steve remains pluggable with the current Codex App workflow.
+
+## Multi-Codex Context Graph
+
+Every auto run is coordinated by Steve and executed by multiple Codex App workers.
+
+Steve writes two run-level files:
+
+- `.steve/runs/<run>/run-context.md`: the shared parent context all workers should read first.
+- `.steve/runs/<run>/coordination.json`: the worker graph, context paths, result paths, status, dependencies, and visual baseline.
+
+Each worker also receives its own item-level handoff pack:
+
+- `.steve/runs/<run>/<item>/context.md`
+- `.steve/runs/<run>/<item>/result.md`
+- `.steve/runs/<run>/<item>/codex.jsonl`
+
+The intended loop is:
+
+1. Steve runs visual scoring and registers several Codex App handoffs.
+2. Each Codex worker reads the shared run context plus its item context.
+3. Workers operate in isolated external worktrees.
+4. Workers return Chinese reports through the handoff result endpoint.
+5. Steve refreshes the coordination graph, report, and next-step candidates.
+
+Result ingestion endpoint:
+
+```text
+POST /api/runs/<run>/items/<item>/handoff-result
+```
+
+Minimal body:
+
+```json
+{
+  "summary": "中文结论",
+  "report": "# 中文报告...",
+  "recommendation": "merge",
+  "dependsOn": ["visual-quality-score"],
+  "nextWorkers": ["mobile-regression"]
+}
+```

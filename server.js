@@ -130,6 +130,124 @@ function itemStateDir(runId, itemId) {
   return join(runStateDir(runId), itemId);
 }
 
+function writeRunContext(run) {
+  const dir = runStateDir(run.id);
+  mkdirSync(dir, { recursive: true });
+  const contextPath = join(dir, "run-context.md");
+  const handoffItems = (run.items || []).filter((item) => item.codexSessions?.some((session) => session.mode === "app-handoff"));
+  const lines = [
+    `# Steve Run Context: ${run.id}`,
+    "",
+    "这是所有 Codex App worker 共享的父级上下文。每个 worker 都应先理解这里，再处理自己的 `context.md`。",
+    "",
+    "## Target",
+    "",
+    `- Name: ${run.targetName}`,
+    `- Product mode: ${run.productMode || "general"}`,
+    `- App URL: ${run.targetAppUrl}`,
+    `- Repo: ${run.targetRoot}`,
+    `- Base branch: ${run.baseBranch}`,
+    "",
+    "## Coordination",
+    "",
+    "- Steve 是 coordinator：负责拆任务、生成上下文、登记 handoff、回收报告、决定下一轮。",
+    "- Codex App worker 是并行执行单元：每个 worker 只处理一个候选点，避免互相覆盖。",
+    "- 所有 worker 产物必须回到 Steve artifacts 或对应 worktree，并在 Steve item 状态里登记。",
+    "- 如果发现依赖另一个 worker 的结论，先在报告里声明依赖，不要猜测对方结果。",
+    "",
+    "## Workers",
+    "",
+    ...handoffItems.map((item) => [
+      `### ${item.title}`,
+      `- Item: ${item.id}`,
+      `- Status: ${item.status}`,
+      `- Worktree: ${item.worktreePath}`,
+      `- Context: ${item.contextPath || ""}`,
+      `- Expected result: ${item.codexSessions?.[item.codexSessions.length - 1]?.resultPath || ""}`,
+      `- Role: ${item.agent}`,
+      `- Skill: ${item.skill}`,
+      "",
+    ].join("\n")),
+    "## Return Contract",
+    "",
+    "Worker 完成后必须返回中文报告，并至少包含：",
+    "- 结论：建议合并 / 暂不合并 / 需要人工确认",
+    "- 改动摘要或体验发现",
+    "- 证据路径",
+    "- 验证结果",
+    "- 剩余风险",
+    "- 建议 Steve 下一步派生的 worker",
+  ];
+  writeFileSync(contextPath, lines.join("\n"), "utf-8");
+  run.runContextPath = contextPath;
+  return contextPath;
+}
+
+function writeCoordinationPlan(run) {
+  const dir = runStateDir(run.id);
+  mkdirSync(dir, { recursive: true });
+  const coordinationPath = join(dir, "coordination.json");
+  const workers = (run.items || [])
+    .filter((item) => item.codexSessions?.some((session) => session.mode === "app-handoff"))
+    .map((item) => {
+      const session = item.codexSessions.findLast?.((entry) => entry.mode === "app-handoff")
+        || [...(item.codexSessions || [])].reverse().find((entry) => entry.mode === "app-handoff");
+      return {
+        itemId: item.id,
+        title: item.title,
+        role: item.agent,
+        skill: item.skill,
+        status: item.status,
+        worktreePath: item.worktreePath,
+        branch: item.branch,
+        contextPath: item.contextPath,
+        sessionId: session?.id || null,
+        resultPath: session?.resultPath || null,
+        logPath: session?.logPath || null,
+        dependsOn: item.id === "visual-quality-score" ? [] : ["visual-quality-score"],
+      };
+    });
+  const plan = {
+    runId: run.id,
+    targetId: run.targetId,
+    targetName: run.targetName,
+    productMode: run.productMode || "general",
+    strategy: "coordinator-plus-parallel-codex-app-workers",
+    coordinator: {
+      name: "Steve",
+      responsibilities: [
+        "generate shared context",
+        "spawn or register multiple Codex App handoffs",
+        "collect reports",
+        "update run state",
+        "decide next iteration",
+      ],
+    },
+    maxParallelCodex: 4,
+    sharedContextPath: run.runContextPath || null,
+    visualBaseline: run.items?.find((item) => item.id === "visual-quality-score")?.visualScore || null,
+    workers,
+    updatedAt: new Date().toISOString(),
+  };
+  writeFileSync(coordinationPath, JSON.stringify(plan, null, 2), "utf-8");
+  run.coordinationPath = coordinationPath;
+  run.coordination = {
+    strategy: plan.strategy,
+    workerCount: workers.length,
+    maxParallelCodex: plan.maxParallelCodex,
+    updatedAt: plan.updatedAt,
+  };
+  return plan;
+}
+
+function refreshCoordination(run) {
+  writeRunContext(run);
+  const plan = writeCoordinationPlan(run);
+  run.report = buildReport(run);
+  saveRun(run);
+  return plan;
+}
+
 function slug(value) {
   return String(value || "")
     .toLowerCase()
@@ -268,6 +386,9 @@ function buildReport(run) {
     `- 创建时间：${run.createdAt}`,
     `- 状态：${run.status}`,
     `- 候选点：${run.items.length}`,
+    `- Codex App worker：${run.coordination?.workerCount ?? 0}/${run.coordination?.maxParallelCodex ?? 4}`,
+    `- 共享上下文：${run.runContextPath || "未生成"}`,
+    `- 协调计划：${run.coordinationPath || "未生成"}`,
     "",
     "## 候选点",
     "",
@@ -386,6 +507,7 @@ function createWorktree(run, itemId) {
   run.updatedAt = item.updatedAt;
   run.report = buildReport(run);
   saveRun(run);
+  refreshCoordination(run);
   return item;
 }
 
@@ -432,6 +554,8 @@ function writeContextPack(run, item) {
     `- Worktree: ${item.worktreePath}`,
     `- Branch: ${item.branch}`,
     `- Night window: ${(run.nightWindow?.slots || []).join(" / ") || "未配置"} ${run.nightWindow?.timezone || ""}`,
+    `- Shared run context: ${run.runContextPath || join(runStateDir(run.id), "run-context.md")}`,
+    `- Coordination plan: ${run.coordinationPath || join(runStateDir(run.id), "coordination.json")}`,
     "",
     "## 候选点",
     "",
@@ -449,6 +573,7 @@ function writeContextPack(run, item) {
     "## 工作规则",
     "",
     "- 你不是孤立工作：不要改动 Steve 项目自身，除非任务明确要求。",
+    "- 你属于一个多 Codex App worker 团队；先阅读 Shared run context，理解其他 worker 的职责。",
     "- 只在当前 worktree 中完成这个候选点，避免影响其他 worker。",
     "- 不要泄露密钥、cookie、token 或线上私有配置。",
     "- 如果 target 是 enterprise，不要因为出现企业集成能力就直接删除；优先检查默认文案、边界说明和降级体验。",
@@ -463,6 +588,7 @@ function writeContextPack(run, item) {
     "- 验证结果",
     "- 剩余风险",
     "- 后续建议",
+    "- 上下文回收：报告路径、是否依赖其他 worker、建议 Steve 下一轮派生任务",
   ].join("\n");
   writeFileSync(contextPath, prompt, "utf-8");
   return { contextPath, resultPath, logPath, prompt };
@@ -497,6 +623,7 @@ function startCodexSession(run, itemId, options = {}) {
   run.updatedAt = item.updatedAt;
   run.report = buildReport(run);
   saveRun(run);
+  refreshCoordination(run);
 
   if (!useCli) return session;
 
@@ -529,6 +656,7 @@ function startCodexSession(run, itemId, options = {}) {
       latest.updatedAt = targetItem.updatedAt;
       latest.report = buildReport(latest);
       saveRun(latest);
+      refreshCoordination(latest);
     }
   });
   child.on("close", (code) => {
@@ -545,11 +673,49 @@ function startCodexSession(run, itemId, options = {}) {
       latest.updatedAt = targetSession.finishedAt;
       latest.report = buildReport(latest);
       saveRun(latest);
+      refreshCoordination(latest);
     }
   });
   session.pid = child.pid;
   saveRun(run);
+  refreshCoordination(run);
   return session;
+}
+
+function recordHandoffResult(run, itemId, result = {}) {
+  const item = run.items.find((candidate) => candidate.id === itemId);
+  if (!item) throw new Error("item not found");
+  const latestSession = item.codexSessions?.findLast?.((session) => session.mode === "app-handoff")
+    || [...(item.codexSessions || [])].reverse().find((session) => session.mode === "app-handoff");
+  const finishedAt = new Date().toISOString();
+  const resultText = String(result.report || result.summary || "").trim();
+  const resultPath = result.resultPath || latestSession?.resultPath || join(itemStateDir(run.id, item.id), "result.md");
+
+  if (resultText) {
+    mkdirSync(dirname(resultPath), { recursive: true });
+    writeFileSync(resultPath, resultText, "utf-8");
+  }
+
+  if (latestSession) {
+    latestSession.status = result.status || "completed";
+    latestSession.finishedAt = finishedAt;
+    latestSession.hasResult = existsSync(resultPath);
+    latestSession.resultPath = resultPath;
+    latestSession.summary = result.summary || null;
+    latestSession.recommendation = result.recommendation || null;
+    latestSession.dependsOn = result.dependsOn || [];
+    latestSession.nextWorkers = result.nextWorkers || [];
+  }
+
+  item.status = result.itemStatus || (result.recommendation === "needs-polish" ? "needs-polish" : "codex-completed");
+  item.validationNotes = result.summary || result.validationNotes || item.validationNotes || "";
+  item.resultPath = resultPath;
+  item.dependsOn = result.dependsOn || item.dependsOn || [];
+  item.nextWorkers = result.nextWorkers || [];
+  item.updatedAt = finishedAt;
+  run.updatedAt = finishedAt;
+  refreshCoordination(run);
+  return item;
 }
 
 function ensureCodeNextCookie(target) {
@@ -653,6 +819,7 @@ async function autoRunTarget(targetId) {
   latest.updatedAt = new Date().toISOString();
   latest.report = buildReport(latest);
   saveRun(latest);
+  refreshCoordination(latest);
   return latest;
 }
 
@@ -699,6 +866,13 @@ async function route(req, res) {
       if (!run) return send(res, 404, { error: "run not found" });
       return send(res, 200, { run, mergePlan: mergePlan(run) });
     }
+    const coordinationMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/coordination$/);
+    if (req.method === "GET" && coordinationMatch) {
+      const run = findRun(coordinationMatch[1]);
+      if (!run) return send(res, 404, { error: "run not found" });
+      const plan = refreshCoordination(run);
+      return send(res, 200, { ok: true, run, plan });
+    }
     const itemMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/items\/([^/]+)$/);
     if (req.method === "PATCH" && itemMatch) {
       const run = findRun(itemMatch[1]);
@@ -709,6 +883,7 @@ async function route(req, res) {
       run.updatedAt = item.updatedAt;
       run.report = buildReport(run);
       saveRun(run);
+      refreshCoordination(run);
       return send(res, 200, { ok: true, run, item });
     }
     const wtMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/items\/([^/]+)\/worktree$/);
@@ -726,6 +901,14 @@ async function route(req, res) {
       const updated = findRun(run.id) || run;
       const item = updated.items.find((candidate) => candidate.id === codexMatch[2]);
       return send(res, 200, { ok: true, run: updated, item, session });
+    }
+    const resultMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/items\/([^/]+)\/handoff-result$/);
+    if (req.method === "POST" && resultMatch) {
+      const run = findRun(resultMatch[1]);
+      if (!run) return send(res, 404, { error: "run not found" });
+      const body = await readBody(req);
+      const item = recordHandoffResult(run, resultMatch[2], body || {});
+      return send(res, 200, { ok: true, run: findRun(run.id) || run, item });
     }
     const logMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/items\/([^/]+)\/codex-sessions\/([^/]+)\/log$/);
     if (req.method === "GET" && logMatch) {

@@ -103,7 +103,7 @@ function renderStats() {
   const visual = items.find((item) => item.id === "visual-quality-score")?.visualScore;
   const stats = [
     ["候选点", items.length],
-    ["App 接管", items.filter((item) => item.codexSessions?.some((s) => s.mode === "app-handoff")).length],
+    ["Codex worker", state.run?.coordination?.workerCount ?? items.filter((item) => item.codexSessions?.some((s) => s.mode === "app-handoff")).length],
     ["需打磨", items.filter((item) => ["needs-polish", "failed"].includes(item.status)).length],
     ["视觉评分", visual?.score == null ? "—" : `${visual.score}`],
   ];
@@ -132,6 +132,7 @@ function renderSummary() {
   const visual = visualItem?.visualScore;
   const needs = items.filter((item) => ["needs-polish", "failed"].includes(item.status));
   const handoffs = items.filter((item) => item.codexSessions?.some((s) => s.mode === "app-handoff"));
+  const coordination = state.run.coordination;
   const topNeeds = needs.slice(0, 3).map((item) => (
     `<div class="insight"><strong>${escapeHtml(item.title)}</strong>：${escapeHtml(item.validationNotes || item.proposal || item.finding)}</div>`
   )).join("");
@@ -142,10 +143,12 @@ function renderSummary() {
         ${visual?.score == null
           ? "视觉评分尚未完成。"
           : `CodeNext 当前视觉评分 <strong>${escapeHtml(visual.score)}/${escapeHtml(visual.maxScore || 100)}</strong>，阈值 ${escapeHtml(visual.minScore)}。`}
-        App handoff 已登记 <strong>${handoffs.length}</strong> 个。
+        Codex App worker 已登记 <strong>${escapeHtml(coordination?.workerCount ?? handoffs.length)}</strong> 个。
       </p>
       <div class="insights">
         ${topNeeds || `<div class="insight">当前没有需要你立即决策的阻断项。</div>`}
+        ${state.run.runContextPath ? `<div class="insight"><strong>共享上下文</strong>：${escapeHtml(state.run.runContextPath)}</div>` : ""}
+        ${state.run.coordinationPath ? `<div class="insight"><strong>协调计划</strong>：${escapeHtml(state.run.coordinationPath)}</div>` : ""}
       </div>
     </section>
     <section class="summary-card">
