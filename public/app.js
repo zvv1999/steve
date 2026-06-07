@@ -3,6 +3,8 @@ const state = {
   runs: [],
   targetId: "codenext",
   run: null,
+  operator: null,
+  operatorLoop: null,
   plan: null,
   query: "",
   busy: false,
@@ -59,7 +61,7 @@ function statusLabel(status) {
     planned: "待拆分",
     "worktree-ready": "工作树就绪",
     "context-ready": "上下文就绪",
-    "handoff-ready": "等待 App 接管",
+    "handoff-ready": "待 Operator 派生",
     "in-progress": "优化中",
     "codex-completed": "Codex 已完成",
     "needs-polish": "需要打磨",
@@ -195,6 +197,138 @@ function laneCard(item) {
   `;
 }
 
+function codexSessionState(session) {
+  if (!session) return { label: "未登记", cls: "" };
+  if (session.hasResult || session.status === "completed") return { label: "已回收", cls: "good" };
+  if (session.status === "running") return { label: "执行中", cls: "warn" };
+  if (session.status === "context-ready") return { label: "上下文就绪", cls: "blue" };
+  if (session.status === "handoff-ready") return { label: "待 Operator 派生", cls: "warn" };
+  return { label: statusLabel(session.status), cls: "" };
+}
+
+function agentInitials(item) {
+  const title = String(item.agent || item.title || "Codex").trim();
+  const parts = title.split(/\s+/).filter(Boolean);
+  if (!parts.length) return "C";
+  return parts.slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+}
+
+function collaborationProfile(items) {
+  const allWorkers = items.filter(isWorkerItem);
+  const workers = state.advanced ? allWorkers : allWorkers.filter((item) => item.status !== "rejected");
+  const activeWorkers = workers.filter((item) => item.status === "in-progress" || latestAppSession(item)?.status === "running");
+  const mergeReady = workers.filter((item) => morningDecision(item).kind === "merge");
+  const waitingQa = workers.filter((item) => item.status === "codex-completed" && morningDecision(item).kind !== "merge");
+  const nextWorkers = allNextWorkers(items);
+  const handoffReady = workers.filter((item) => latestAppSession(item)?.status === "handoff-ready");
+  const contextReady = workers.filter((item) => latestAppSession(item)?.status === "context-ready");
+  const completed = workers.filter((item) => latestAppSession(item)?.hasResult || latestAppSession(item)?.status === "completed");
+  const maxParallel = Number(state.run?.coordination?.maxParallelCodex || state.run?.coordination?.workerCount || 4);
+  const visibleCapacity = Math.max(maxParallel, activeWorkers.length, 1);
+  const idleSlots = Math.max(0, visibleCapacity - activeWorkers.length);
+  return {
+    workers,
+    activeWorkers,
+    mergeReady,
+    waitingQa,
+    nextWorkers,
+    handoffReady,
+    contextReady,
+    completed,
+    counts: decisionCounts(items),
+    maxParallel: visibleCapacity,
+    idleSlots,
+    manageable: workers.length,
+  };
+}
+
+function workerSlotCard(item, index) {
+  if (!item) {
+    return `
+      <div class="worker-slot idle">
+        <div class="slot-orb">IDLE</div>
+        <div>
+          <strong>Worker ${escapeHtml(index + 1)}</strong>
+          <p>空闲，可接收一个 focused 任务</p>
+        </div>
+        <span class="slot-state">ready</span>
+      </div>
+    `;
+  }
+  const session = latestAppSession(item);
+  const sessionState = codexSessionState(session);
+  return `
+    <div class="worker-slot ${sessionState.cls || "active"}">
+      <div class="slot-orb">${escapeHtml(agentInitials(item))}</div>
+      <div>
+        <strong>${escapeHtml(item.title)}</strong>
+        <p>${escapeHtml(itemSubtitle(item, 78))}</p>
+      </div>
+      <span class="slot-state">${escapeHtml(sessionState.label)}</span>
+    </div>
+  `;
+}
+
+function directiveValue() {
+  return $("steve-directive")?.value.trim() || "";
+}
+
+function operatorOnline() {
+  return Boolean(state.operator?.active || state.run?.currentCodexOperator?.active || state.run?.currentCodexOperator?.status === "active");
+}
+
+function loopActive() {
+  return Boolean(state.operatorLoop?.active || state.operatorLoop?.status === "active");
+}
+
+function agentWorkerCard(item) {
+  const session = latestAppSession(item);
+  const sessionState = codexSessionState(session);
+  const decision = morningDecision(item);
+  const score = qualityScore(item);
+  const completed = session?.hasResult || session?.status === "completed" || item.status === "codex-completed";
+  return `
+    <article class="agent-card">
+      <div class="agent-avatar ${sessionState.cls || ""}">${escapeHtml(agentInitials(item))}</div>
+      <div class="agent-card-main">
+        <div class="agent-card-top">
+          <h3>${escapeHtml(item.title)}</h3>
+          <span class="badge ${sessionState.cls}">${escapeHtml(sessionState.label)}</span>
+        </div>
+        <p>${escapeHtml(itemSubtitle(item))}</p>
+        <div class="agent-card-meta">
+          <span class="mini-pill">${escapeHtml(item.agent || "Codex worker")}</span>
+          <span class="mini-pill blue">${escapeHtml(item.skill || "自动选 skill")}</span>
+          <span class="mini-pill ${decision.cls || ""}">${escapeHtml(decision.label)}</span>
+          ${score == null ? "" : `<span class="mini-pill ${score === 100 ? "good" : "warn"}">${escapeHtml(score)}/100</span>`}
+        </div>
+        <div class="agent-actions">
+          ${completed
+            ? `<button class="control-btn" data-action="validated" data-id="${escapeHtml(item.id)}">复验通过</button>`
+            : `<button class="control-btn primary" data-action="operator-claim" data-id="${escapeHtml(item.id)}">${session?.status === "running" ? "刷新执行态" : "Operator 认领"}</button>`}
+          <button class="control-btn" data-action="context" data-id="${escapeHtml(item.id)}">准备上下文</button>
+          <button class="control-btn" data-action="copy-handoff" data-id="${escapeHtml(item.id)}">复制接管提示</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function compactWorkerItem(item) {
+  const session = latestAppSession(item);
+  const sessionState = codexSessionState(session);
+  return `
+    <div class="queue-item">
+      <span class="queue-dot ${sessionState.cls || ""}"></span>
+      <div>
+        <strong>${escapeHtml(item.title)}</strong>
+        <small>${escapeHtml(itemSubtitle(item, 82))}</small>
+      </div>
+      <span class="badge ${sessionState.cls}">${escapeHtml(sessionState.label)}</span>
+    </div>
+  `;
+}
+
 function renderFlow() {
   const root = $("flow");
   if (!root) return;
@@ -202,99 +336,125 @@ function renderFlow() {
     root.innerHTML = `
       <div class="flow-head">
         <div>
-          <h2>Agent 链路</h2>
-          <p>Steve 还没有 run，生成计划后这里会显示 coordinator、worker 和总质检。</p>
+          <h2>Codex App 协作看板</h2>
+          <p>Steve 还没有 run。点“让 Steve 继续工作”后，这里会显示当前可管理的 Codex worker、质检和下一批派生。</p>
         </div>
       </div>
     `;
     return;
   }
   const items = state.run.items || [];
-  const workers = items.filter(isWorkerItem);
-  const activeWorkers = workers.filter((item) => ["handoff-ready", "context-ready", "in-progress", "needs-polish"].includes(item.status));
-  const mergeReady = workers.filter((item) => morningDecision(item).kind === "merge");
-  const waitingQa = workers.filter((item) => item.status === "codex-completed" && morningDecision(item).kind !== "merge");
-  const nextWorkers = allNextWorkers(items);
-  const counts = decisionCounts(items);
+  const {
+    workers,
+    activeWorkers,
+    mergeReady,
+    waitingQa,
+    nextWorkers,
+    handoffReady,
+    contextReady,
+    completed,
+    counts,
+    maxParallel,
+    idleSlots,
+    manageable,
+  } = collaborationProfile(items);
   const qc = state.run.coordination?.qualityController || {};
   const qcActive = activeWorkers.length || waitingQa.length || nextWorkers.length || mergeReady.length;
+  const capacityText = `${Math.min(activeWorkers.length, maxParallel)}/${maxParallel}`;
+  const handoffText = handoffReady.length
+    ? `${handoffReady.length} 个待 Operator 派生`
+    : (contextReady.length ? `${contextReady.length} 个上下文已准备` : "暂无待派生任务");
+  const operator = state.operator || state.run.currentCodexOperator || {};
+  const loop = state.operatorLoop || state.run.operatorLoop || {};
+
+  const slots = Array.from({ length: maxParallel }, (_, index) => workerSlotCard(activeWorkers[index], index)).join("");
 
   root.innerHTML = `
-    <div class="flow-head">
-      <div>
-        <h2><span class="pulse-dot"></span>当前 Agent 工作看板</h2>
-        <p>左边看谁正在做，中间看总质检怎么判，右边看下一批会继续做什么。</p>
-        <div class="flow-status-line">
-          <span class="badge good">可合并 ${escapeHtml(counts.merge)}</span>
-          <span class="badge warn">正在/待接管 ${escapeHtml(activeWorkers.length)}</span>
-          <span class="badge">总质检 ${escapeHtml(mergeReady.length || waitingQa.length ? "已回收" : "等待结果")}</span>
-          <span class="badge">当前批次</span>
+    <div class="fleet-hero">
+      <div class="fleet-radar">
+        <span class="eyebrow"><span class="pulse-dot"></span>Agent Fleet Control</span>
+        <h2>${escapeHtml(idleSlots)} 个 worker 空闲</h2>
+        <p>当前 ${escapeHtml(activeWorkers.length)} 个忙碌，${escapeHtml(manageable)} 个会话可管理。你可以给空闲 worker 下发任务，也可以给 Steve 一个方向让它自动探索。</p>
+        <div class="fleet-metrics">
+          <span><b>${escapeHtml(activeWorkers.length)}</b> busy</span>
+          <span><b>${escapeHtml(idleSlots)}</b> idle</span>
+          <span><b>${escapeHtml(handoffReady.length)}</b> queued</span>
+          <span><b>${escapeHtml(mergeReady.length)}</b> merge</span>
         </div>
       </div>
-      <span class="badge ${qcActive ? "good" : "warn"}">${qc.neverIdle ? "持续演进中" : "质量门禁"}</span>
-    </div>
-    <div class="flow-grid">
-      <div class="flow-node active">
-        <div class="flow-node-title">
-          <span>1. Steve 派发任务</span>
-          <span class="badge good">已启动</span>
+      <div class="command-deck">
+        <div class="deck-head">
+          <strong>给 Steve 一个方向</strong>
+          <span class="badge ${operatorOnline() ? "good" : "warn"}">${operatorOnline() ? "Codex Operator 在线" : "Operator 未连接"}</span>
         </div>
-        <small>把产品目标拆成 worker，并登记到当前 run。当前可见 worker：${escapeHtml(workers.length)} 个。</small>
-        <div class="flow-arrow">生成上下文 → 分配给 worker</div>
-      </div>
-      <div class="flow-node ${activeWorkers.length ? "active" : "done"}">
-        <div class="flow-node-title">
-          <span>2. Codex worker 执行</span>
-          <span class="badge ${activeWorkers.length ? "warn" : "good"}">${activeWorkers.length ? `${activeWorkers.length} 个正在工作` : "本批已交回"}</span>
+        <div class="operator-strip">
+          <span>${escapeHtml(operator.label || "当前 Codex App 会话")}</span>
+          <span>${escapeHtml(operator.runtime || "codex-app")}</span>
+          <span>${escapeHtml(operator.lastSeenAt ? `心跳 ${new Date(operator.lastSeenAt).toLocaleTimeString()}` : "等待心跳")}</span>
+          <span>${escapeHtml(loopActive() ? "Loop active" : "Loop paused")}</span>
         </div>
-        <div class="agent-list">
-          ${workers.filter((item) => state.advanced || item.status !== "rejected").map((item) => {
-            const stage = agentStage(item);
-            const score = qualityScore(item);
-            return `
-              <div class="agent-row">
-                <div>
-                  <h3>${escapeHtml(item.title)}</h3>
-                  <p>${escapeHtml(itemSubtitle(item))}</p>
-                </div>
-                <span class="badge ${stage.cls}">${escapeHtml(stage.label)}</span>
-                <div class="agent-meta">
-                  <span class="badge">${escapeHtml(item.agent || "worker")}</span>
-                  <span class="badge">${escapeHtml(item.skill || "skill")}</span>
-                  ${score == null ? "" : `<span class="badge ${score === 100 ? "good" : "warn"}">${escapeHtml(score)}/100</span>`}
-                  ${item.resultPath ? `<span class="badge good">result</span>` : ""}
-                </div>
-              </div>
-            `;
-          }).join("")}
+        <textarea id="steve-directive" placeholder="例如：探索知识库、多 agent 协作、Slack/钉钉集成、云端 AI 编程工作台体验瓶颈..."></textarea>
+        <div class="directive-chips">
+          <button class="chip" data-directive="探索知识库和检索增强能力，让 CodeNext 更像云端 AI 编程工作台">知识库</button>
+          <button class="chip" data-directive="探索多 AI agent 协作、任务派发、上下文回收和质检闭环">多 agent</button>
+          <button class="chip" data-directive="探索 Slack、钉钉、飞书通知与协作入口，提升团队工作流">协作通知</button>
+          <button class="chip" data-directive="从苹果式丝滑体验出发，寻找最高价值的交互优化点">体验打磨</button>
         </div>
-      </div>
-      <div class="flow-node ${mergeReady.length ? "done" : "active"}">
-        <div class="flow-node-title">
-          <span>3. 总质检验收</span>
-          <span class="badge ${mergeReady.length ? "good" : "warn"}">${mergeReady.length} 个可合并</span>
+        <div class="deck-actions">
+          <button class="control-btn ${operatorOnline() ? "" : "primary"}" data-action="register-operator">${operatorOnline() ? "刷新 Operator" : "连接为 Codex Operator"}</button>
+          <button class="control-btn" data-action="operator-heartbeat">Operator 心跳</button>
+          <button class="control-btn ${loopActive() ? "" : "primary"}" data-action="operator-loop-start">${loopActive() ? "刷新 Loop" : "启动 Loop"}</button>
+          <button class="control-btn" data-action="operator-loop-tick">执行下一 tick</button>
+          <button class="control-btn" data-action="operator-loop-pause">暂停 Loop</button>
+          <button class="control-btn primary" data-action="dispatch-directive">加入 Operator 队列</button>
+          <button class="control-btn" data-action="discover-directive">自动发现任务</button>
+          <button class="control-btn" data-action="notify-codex">同步队列给 Operator</button>
         </div>
-        <small>复核报告、改动文件、测试、视觉证据和服务是否生效。worker 的自评只作为输入。</small>
-        <div class="flow-arrow">通过 → 合并候选；不足 → 继续派生</div>
       </div>
     </div>
-    <div class="flow-lanes">
-      <div class="lane active">
-        <h3>正在工作 <span class="badge warn">${escapeHtml(activeWorkers.length)}</span></h3>
-        ${activeWorkers.length ? activeWorkers.map(laneCard).join("") : `<div class="lane-item"><strong>没有执行中的 worker</strong>总质检会继续派生下一批，不会停在这里。</div>`}
-      </div>
-      <div class="lane qa">
-        <h3>等总质检 <span class="badge">${escapeHtml(waitingQa.length + counts.pending)}</span></h3>
-        ${waitingQa.length ? waitingQa.map(laneCard).join("") : `<div class="lane-item"><strong>没有待质检结果</strong>worker 完成后会进入这里，由总质检复核。</div>`}
-      </div>
-      <div class="lane merge">
-        <h3>可合并 <span class="badge good">${escapeHtml(mergeReady.length)}</span></h3>
-        ${mergeReady.length ? mergeReady.map(laneCard).join("") : `<div class="lane-item"><strong>暂无可合并</strong>需要 100/100、证据齐全、总质检确认。</div>`}
-      </div>
-      <div class="lane next">
-        <h3>下一批 <span class="badge warn">${escapeHtml(nextWorkers.length || activeWorkers.length ? nextWorkers.length : 1)}</span></h3>
-        ${nextWorkers.length ? nextWorkers.map((worker) => `<div class="lane-item"><strong>${escapeHtml(worker)}</strong>由总质检派生，继续补齐体验或验证。</div>`).join("") : `<div class="lane-item"><strong>继续发现新点</strong>当前批次通过后，Steve 会继续找更高价值优化。</div>`}
-      </div>
+
+    <div class="fleet-slots">
+      ${slots}
+    </div>
+
+    <div class="control-grid">
+      <section class="agent-roster">
+        <div class="section-line">
+          <div>
+            <h3>协作中的 Codex 会话</h3>
+            <p>只有真实 Codex worker 被 Operator 派生并认领后，才会进入忙碌槽位。</p>
+          </div>
+          <span class="badge good">${escapeHtml(workers.length)} 个会话 · ${escapeHtml(idleSlots)} 空闲</span>
+        </div>
+        <div class="agent-cards">
+          ${workers.length ? workers.map(agentWorkerCard).join("") : `<div class="empty compact">还没有 Codex App worker。启动自动工作后会自动登记。</div>`}
+        </div>
+      </section>
+
+      <aside class="ops-queue">
+        <div class="section-line">
+          <div>
+            <h3>管理队列</h3>
+            <p>按你早上最需要看的顺序排列。</p>
+          </div>
+        </div>
+        <div class="queue-block">
+          <div class="queue-title">待 Operator 派生 <span>${escapeHtml(handoffReady.length + contextReady.length)}</span></div>
+          ${(handoffReady.length || contextReady.length) ? [...handoffReady, ...contextReady].slice(0, 4).map(compactWorkerItem).join("") : `<div class="queue-empty">暂无待派生 worker</div>`}
+        </div>
+        <div class="queue-block">
+          <div class="queue-title">等总质检 <span>${escapeHtml(waitingQa.length + counts.pending)}</span></div>
+          ${waitingQa.length ? waitingQa.slice(0, 4).map(compactWorkerItem).join("") : `<div class="queue-empty">完成结果会进入这里</div>`}
+        </div>
+        <div class="queue-block">
+          <div class="queue-title">可合并 <span>${escapeHtml(mergeReady.length)}</span></div>
+          ${mergeReady.length ? mergeReady.slice(0, 4).map(compactWorkerItem).join("") : `<div class="queue-empty">需要 100/100 + 证据齐全</div>`}
+        </div>
+        <div class="queue-block">
+          <div class="queue-title">下一批派生 <span>${escapeHtml(nextWorkers.length || 1)}</span></div>
+          ${nextWorkers.length ? nextWorkers.slice(0, 5).map((worker) => `<div class="queue-item"><span class="queue-dot warn"></span><div><strong>${escapeHtml(worker)}</strong><small>总质检建议继续推进</small></div></div>`).join("") : `<div class="queue-empty">Steve 会继续发现新优化点</div>`}
+        </div>
+      </aside>
     </div>
   `;
 }
@@ -313,11 +473,12 @@ function renderTargets() {
     : `<option value="">暂无 run</option>`;
   $("run").value = state.run?.id || "";
   const target = state.targets.find((item) => item.id === state.targetId);
+  const repoText = state.advanced ? target?.root : (target?.name || target?.id || "目标项目");
   const windowText = target?.nightWindow
     ? `夜间窗口：${(target.nightWindow.slots || []).join(" / ")}，${target.nightWindow.timezone || "local"}，目标 ${target.nightWindow.targetHours || "-"} 小时`
     : "未配置夜间窗口";
   $("target-info").textContent = target
-    ? `${target.description || ""} 本地地址：${target.appUrl}；仓库：${target.root}；${windowText}`
+    ? `${target.description || ""} 本地地址：${target.appUrl}；仓库：${repoText}；${windowText}`
     : "未配置目标项目";
   $("target-health").innerHTML = target?.health
     ? [
@@ -333,7 +494,7 @@ function renderStats() {
   const visual = items.find((item) => item.id === "visual-quality-score")?.visualScore;
   const counts = decisionCounts(items);
   const workers = items.filter(isWorkerItem);
-  const active = workers.filter((item) => ["handoff-ready", "context-ready", "in-progress", "needs-polish"].includes(item.status)).length;
+  const active = workers.filter((item) => item.status === "in-progress" || latestAppSession(item)?.status === "running").length;
   const pendingQa = workers.filter((item) => item.status === "codex-completed" && morningDecision(item).kind !== "merge").length + counts.pending;
   const stats = [
     ["正在工作", active],
@@ -554,6 +715,8 @@ function render() {
 async function load() {
   const targetData = await api("/api/targets");
   state.targets = targetData.targets || [];
+  state.operator = (await api("/api/codex/operator").catch(() => ({ operator: null }))).operator || null;
+  state.operatorLoop = (await api("/api/codex/operator/loop").catch(() => ({ loop: null }))).loop || null;
   if (!state.targets.some((target) => target.id === state.targetId)) {
     state.targetId = state.targets[0]?.id || "";
   }
@@ -645,7 +808,7 @@ async function startCodex(id, dryRun) {
     state.run = data.run;
     state.runs = [data.run, ...state.runs.filter((run) => run.id !== data.run.id)];
     state.plan = null;
-    toast(dryRun ? "Codex 上下文已准备" : "已登记给当前 Codex App 接管");
+    toast(dryRun ? "Codex 上下文已准备" : "已加入 Operator inbox");
     render();
   } finally {
     setBusy(false);
@@ -657,6 +820,184 @@ async function generatePlan() {
   state.plan = await api(`/api/runs/${encodeURIComponent(state.run.id)}/merge-plan`);
   renderPlan();
   toast("合并计划已更新");
+}
+
+async function notifyCodexApp() {
+  if (!state.run) return toast("请先生成体验计划");
+  setBusy(true);
+  try {
+    const data = await api(`/api/runs/${encodeURIComponent(state.run.id)}/codex-notification`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "Steve Web console requested Codex App handoff." }),
+    });
+    state.run = data.run;
+    state.runs = [data.run, ...state.runs.filter((run) => run.id !== data.run.id)];
+    toast(`已同步 Operator 队列：${data.notification?.restartItemCount ?? 0} 个任务可派生`);
+    render();
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function registerOperator() {
+  setBusy(true);
+  try {
+    const data = await api("/api/codex/operator", {
+      method: "POST",
+      body: JSON.stringify({ label: "当前 Codex App 会话" }),
+    });
+    state.operator = data.operator;
+    toast("当前 Codex App 已连接为 Steve Operator");
+    render();
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function heartbeatOperator() {
+  setBusy(true);
+  try {
+    const data = await api("/api/codex/operator/heartbeat", {
+      method: "POST",
+      body: JSON.stringify({ label: "当前 Codex App 会话", message: "Operator heartbeat from Steve Web" }),
+    });
+    state.operator = data.operator;
+    toast("Codex Operator 心跳已更新");
+    render();
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function updateOperatorLoop(action) {
+  setBusy(true);
+  try {
+    const data = await api("/api/codex/operator/loop", {
+      method: "POST",
+      body: JSON.stringify({
+        action,
+        targetId: state.targetId,
+        directive: directiveValue(),
+        autoDiscover: true,
+      }),
+    });
+    state.operatorLoop = data.loop;
+    toast(action === "pause" ? "Operator Loop 已暂停" : "Operator Loop 已启动");
+    render();
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function tickOperatorLoop() {
+  setBusy(true);
+  try {
+    const data = await api("/api/codex/operator/loop/tick", {
+      method: "POST",
+      body: JSON.stringify({
+        targetId: state.targetId,
+        directive: directiveValue(),
+        autoDiscover: true,
+      }),
+    });
+    state.operatorLoop = data.loop;
+    state.operator = data.inbox?.operator || state.operator;
+    await load();
+    toast(data.nextAction?.type === "spawn-worker" ? `下一 tick：${data.nextAction.title}` : (data.nextAction?.message || "Loop tick 已执行"));
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function claimWorker(id) {
+  if (!state.run) return toast("请先生成体验计划");
+  setBusy(true);
+  try {
+    if (!operatorOnline()) {
+      const operatorData = await api("/api/codex/operator", {
+        method: "POST",
+        body: JSON.stringify({ label: "当前 Codex App 会话" }),
+      });
+      state.operator = operatorData.operator;
+    }
+    const data = await api(`/api/runs/${encodeURIComponent(state.run.id)}/items/${encodeURIComponent(id)}/operator-claim`, {
+      method: "POST",
+      body: JSON.stringify({ operator: state.operator }),
+    });
+    state.run = data.run;
+    state.runs = [data.run, ...state.runs.filter((run) => run.id !== data.run.id)];
+    state.operator = data.operator;
+    toast("worker 已由 Codex Operator 认领为执行中");
+    render();
+  } finally {
+    setBusy(false);
+  }
+}
+
+function directiveTaskPayload(directive, mode) {
+  const clean = shortText(directive, 72) || "探索下一个高价值产品优化点";
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+z$/i, "z").toLowerCase();
+  return {
+    id: `${mode}-${stamp}`,
+    title: mode === "discover" ? `自动探索：${clean}` : `人工启发：${clean}`,
+    type: mode === "discover" ? "discovery" : "optimization",
+    valueScore: mode === "discover" ? 94 : 96,
+    risk: "medium",
+    agent: mode === "discover" ? "Steve discovery worker" : "focused Codex worker",
+    skill: "auto-discovered",
+    finding: mode === "discover"
+      ? `用户给出启发方向：${directive || "继续寻找高价值优化点"}。Steve 需要主动发现值得推进的产品机会。`
+      : `用户直接下发方向：${directive || "完成一个 focused 产品优化点"}。`,
+    proposal: mode === "discover"
+      ? "从产品体验、技术可行性、验证成本和用户价值出发，提出可执行任务并回写中文报告。"
+      : "围绕该方向完成一个最小闭环优化，必要时自动发现合适 skill，并交给总质检复核。",
+    checklist: [
+      "先判断是否需要 skill，并记录选择理由",
+      "用真实页面、接口或代码证据验证结论",
+      "输出中文 result.md",
+      "给出质量评分、合并建议和下一轮 worker",
+    ],
+    selected: true,
+    recommendation: "recommended",
+    status: "handoff-ready",
+  };
+}
+
+async function createDirectedWorker(mode) {
+  if (!state.run) return toast("请先生成体验计划");
+  const directive = directiveValue();
+  if (!directive && mode !== "discover") return toast("先输入一个方向，再派发给空闲 worker");
+  setBusy(true);
+  try {
+    const payload = directiveTaskPayload(directive, mode);
+    const data = await api(`/api/runs/${encodeURIComponent(state.run.id)}/items/register`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    state.run = data.run;
+    state.runs = [data.run, ...state.runs.filter((run) => run.id !== data.run.id)];
+    await notifyCodexApp();
+    toast(mode === "discover" ? "自动探索任务已进入 Operator inbox" : "任务已进入 Operator inbox，等待真实 Codex worker 派生");
+    render();
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function copyHandoffPrompt(item) {
+  const text = [
+    `请作为 Steve Codex Operator 派生 worker：「${item.title}」。`,
+    `状态：${statusLabel(item.status)}；建议 skill：${item.skill || "自动选择"}。`,
+    "请先读取 Steve 当前 run 的共享上下文和 coordination，然后只处理这个 worker 对应的产品优化点。",
+    "完成后用中文回写：结论、改动摘要、验证证据、质量评分、是否建议合并、下一轮 worker 建议。",
+    "注意：目标产品仓库的提交信息和用户可见文案不要暴露 Steve、run、worker、worktree 或用户原话需求。",
+  ].join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("Operator 派生提示已复制，可粘贴给 Codex App 会话");
+  } catch {
+    toast("浏览器未允许复制，请在任务详情里查看该 worker");
+  }
 }
 
 document.addEventListener("click", async (event) => {
@@ -674,6 +1015,19 @@ document.addEventListener("click", async (event) => {
     if (button.id === "merge") return await generatePlan();
     const id = button.dataset.id;
     const action = button.dataset.action;
+    if (action === "notify-codex") return await notifyCodexApp();
+    if (action === "register-operator") return await registerOperator();
+    if (action === "operator-heartbeat") return await heartbeatOperator();
+    if (action === "operator-loop-start") return await updateOperatorLoop("start");
+    if (action === "operator-loop-pause") return await updateOperatorLoop("pause");
+    if (action === "operator-loop-tick") return await tickOperatorLoop();
+    if (action === "dispatch-directive") return await createDirectedWorker("direct");
+    if (action === "discover-directive") return await createDirectedWorker("discover");
+    if (button.dataset.directive) {
+      const input = $("steve-directive");
+      if (input) input.value = button.dataset.directive;
+      return;
+    }
     if (!id || !action) return;
     const item = state.run?.items.find((candidate) => candidate.id === id);
     if (!item) return;
@@ -681,6 +1035,8 @@ document.addEventListener("click", async (event) => {
     if (action === "worktree") return await createWorktree(id);
     if (action === "context") return await startCodex(id, true);
     if (action === "codex") return await startCodex(id, false);
+    if (action === "operator-claim") return await claimWorker(id);
+    if (action === "copy-handoff") return await copyHandoffPrompt(item);
     if (action === "validated") return await updateItem(id, { status: "validated" }, "已标记复验");
     if (action === "reject") return await updateItem(id, { status: "rejected", selected: false, recommendation: "rejected" }, "已搁置");
   } catch (err) {

@@ -66,6 +66,44 @@ STEVE_CODEX_EXECUTOR=cli CODEX_BIN=/path/to/codex npm start
 
 For product use, prefer `app-handoff` so Steve remains pluggable with the current Codex App workflow.
 
+## Codex App Operator Loop
+
+Steve's primary execution model is a real Codex App operator loop:
+
+- **Steve** is the master agent session. It owns the product goal, target context, queues, quality gates, reports, and iteration decisions.
+- **Codex App Operator** is the current signed-in Codex App session. It reads Steve's inbox, claims work, spawns real Codex workers, waits for results, and keeps a heartbeat.
+- **Workers** are independent Codex agents. Each worker receives one focused prompt, may research high-star GitHub projects when useful, works in its own context/worktree, and writes a `handoff-result` back to Steve.
+
+The HTTP control surface is:
+
+```text
+GET  /api/codex/operator
+POST /api/codex/operator
+POST /api/codex/operator/heartbeat
+
+GET  /api/codex/operator/inbox?targetId=codenext
+POST /api/codex/operator/loop
+GET  /api/codex/operator/loop
+POST /api/codex/operator/loop/tick
+
+POST /api/runs/<run>/items/<item>/operator-claim
+POST /api/runs/<run>/items/<item>/handoff-result
+```
+
+The loop contract:
+
+1. Steve creates or discovers candidate work and exposes it in `operator/inbox`.
+2. The Codex App Operator reads `readyToClaim`.
+3. The Operator claims one item with `operator-claim`; only then does it become `running`.
+4. The Operator spawns a real Codex worker and passes the `workerPrompt` from inbox.
+5. The worker calls `handoff-result` with a Chinese report, score, recommendation, evidence, verification, and `nextWorkers`.
+6. Steve ingests the result. If the score is below `100` or the worker returns `nextWorkers`, Steve materializes those next workers into fresh `handoff-ready` tasks.
+7. The Operator ticks again and continues until the queue is truly empty.
+
+The web console can start/pause/tick the loop and add heuristic directions, but it does not pretend work is running. A worker is marked busy only after the current Codex App Operator claims it and a real Codex worker is spawned from this session.
+
+When no `readyToClaim` or `running` tasks remain, an active loop with `autoDiscover=true` creates a discovery worker from the current directive so Steve keeps finding valuable product-experience work instead of going idle.
+
 ## Multi-Codex Context Graph
 
 Every auto run is coordinated by Steve and executed by multiple Codex App workers.

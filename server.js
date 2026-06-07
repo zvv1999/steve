@@ -146,9 +146,16 @@ function sanitizeReportForDisplay(report) {
     .replace(/（结果 [^)]+\/result\.md）/g, "（报告已回收）")
     .replace(/- 结果文件：.*\n/g, "- 结果文件：报告已回收\n")
     .replace(/- Worktree：.*\n/g, "- 执行环境：隔离工作区已准备\n")
+    .replace(/- 共享上下文：.*\n/g, "- 共享上下文：Steve 已准备\n")
+    .replace(/- 协调计划：.*\n/g, "- 协调计划：Steve 已准备\n")
+    .replace(/- 当前 Steve 工作 Codex 通知：.*\n/g, "- 当前 Codex App 通知：已登记\n")
+    .replace(/- Watchdog：.*\n/g, "- Watchdog：已启用\n")
     .replace(/- 分支：steve\/[^\n]+\n/g, "")
     .replace(/\/Users\/[^)\s；，。\n]+\/steve\/worktrees\/codenext\/[^\s；，。\n)]+/g, "隔离工作区")
     .replace(/\/Users\/[^)\s；，。\n]+\/steve\/\.steve\/runs\/[^\s；，。\n)]+\/result\.md/g, "Steve 报告")
+    .replace(/\/Users\/[^)\s；，。\n]+\/steve\/\.steve\/runs\/[^\s；，。\n)]+\/run-context\.md/g, "Steve 共享上下文")
+    .replace(/\/Users\/[^)\s；，。\n]+\/steve\/\.steve\/runs\/[^\s；，。\n)]+\/coordination\.json/g, "Steve 协调计划")
+    .replace(/\/Users\/[^)\s；，。\n]+\/steve\/\.steve\/codex\/[^\s；，。\n)]+/g, "Codex App 通知")
     .replace(/\/Users\/[^)\s；，。\n]+\/steve\/artifacts\/[^\s；，。\n)]+/g, "Steve 证据")
     .replace(/steve\/codenext\/[^\s；，。\n)]+/g, "内部工作分支");
 }
@@ -215,6 +222,23 @@ function sanitizeRunForDisplay(run) {
     } : run.targetHealth,
     items: (run.items || []).map(sanitizeItemForDisplay),
     report: sanitizeReportForDisplay(run.report),
+    currentCodexNotification: run.currentCodexNotification ? {
+      id: run.currentCodexNotification.id,
+      status: run.currentCodexNotification.status,
+      notifiedAt: run.currentCodexNotification.notifiedAt,
+      restartItemCount: run.currentCodexNotification.restartItemCount,
+      latestPath: "Codex App 通知",
+      restartPath: "Codex App 重启请求",
+      inboxPath: "Codex App 通知队列",
+      markdownPath: "Codex App 通知说明",
+    } : run.currentCodexNotification,
+    currentCodexWatchdog: run.currentCodexWatchdog ? {
+      ...run.currentCodexWatchdog,
+      latestNudgePath: run.currentCodexWatchdog.latestNudgePath ? "Codex App 唤醒记录" : run.currentCodexWatchdog.latestNudgePath,
+      latestNudgeMarkdownPath: run.currentCodexWatchdog.latestNudgeMarkdownPath ? "Codex App 唤醒说明" : run.currentCodexWatchdog.latestNudgeMarkdownPath,
+      nudgesPath: run.currentCodexWatchdog.nudgesPath ? "Codex App 唤醒队列" : run.currentCodexWatchdog.nudgesPath,
+    } : run.currentCodexWatchdog,
+    currentCodexOperator: run.currentCodexOperator || codexOperatorStatus(),
   };
 }
 
@@ -241,6 +265,397 @@ function itemStateDir(runId, itemId) {
 
 function currentCodexDir() {
   return join(STATE_DIR, "codex");
+}
+
+function codexOperatorFile() {
+  return join(currentCodexDir(), "operator.json");
+}
+
+function codexOperatorLoopFile() {
+  return join(currentCodexDir(), "operator-loop.json");
+}
+
+function codexOperatorStatus() {
+  const operator = readJson(codexOperatorFile(), null);
+  if (!operator) {
+    return {
+      active: false,
+      id: null,
+      label: "未连接",
+      message: "还没有 Codex App Operator 在线。当前 Codex 会话需要先在 Steve Web 上接管 Operator。",
+    };
+  }
+  return {
+    active: operator.status === "active",
+    ...operator,
+  };
+}
+
+function codexOperatorLoopStatus() {
+  const loop = readJson(codexOperatorLoopFile(), null);
+  if (!loop) {
+    return {
+      active: false,
+      targetId: "codenext",
+      directive: "",
+      autoDiscover: true,
+      status: "idle",
+      message: "Operator Loop 尚未启动。",
+    };
+  }
+  const { active: _storedActive, message: _storedMessage, ...loopData } = loop;
+  const active = loop.status === "active";
+  return {
+    ...loopData,
+    active,
+    message: active
+      ? "Operator Loop 正在运行：Steve 会持续派生、回收和验证真实 Codex worker。"
+      : "Operator Loop 已暂停：不会自动派生新的 worker。",
+  };
+}
+
+function writeCodexOperatorLoop(patch = {}) {
+  const dir = currentCodexDir();
+  mkdirSync(dir, { recursive: true });
+  const current = codexOperatorLoopStatus();
+  const now = new Date().toISOString();
+  const { active: _currentActive, ...currentData } = current;
+  const next = {
+    targetId: "codenext",
+    directive: "",
+    autoDiscover: true,
+    tickCount: 0,
+    spawnedCount: 0,
+    ...currentData,
+    ...patch,
+    updatedAt: now,
+  };
+  if (patch.status === "active" && !next.startedAt) next.startedAt = now;
+  writeFileSync(codexOperatorLoopFile(), `${JSON.stringify(next, null, 2)}\n`, "utf-8");
+  const active = next.status === "active";
+  return {
+    ...next,
+    active,
+    message: active
+      ? "Operator Loop 正在运行：Steve 会持续派生、回收和验证真实 Codex worker。"
+      : "Operator Loop 已暂停：不会自动派生新的 worker。",
+  };
+}
+
+function registerCodexOperator(input = {}) {
+  const dir = currentCodexDir();
+  mkdirSync(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const operator = {
+    id: input.id || `operator-${Date.now()}-${randomBytes(2).toString("hex")}`,
+    label: input.label || "当前 Codex App 会话",
+    status: "active",
+    runtime: "codex-app",
+    capabilities: [
+      "read Steve queue",
+      "spawn Codex App workers from current session",
+      "claim handoff items",
+      "write handoff-result",
+      "run post-worker QA",
+    ],
+    registeredAt: input.registeredAt || now,
+    lastSeenAt: now,
+    message: "Codex App Operator 在线：Steve Web 可以派发任务，当前 Codex 会话负责真实执行和派生 worker。",
+  };
+  writeFileSync(codexOperatorFile(), `${JSON.stringify(operator, null, 2)}\n`, "utf-8");
+  writeFileSync(join(dir, "operator-protocol.md"), [
+    "# Steve Codex App Operator Protocol",
+    "",
+    "你是 Steve 总控 agent 的 Codex App Operator。Steve 负责管理 CodeNext 产品体验目标，你负责把 Steve 队列里的任务派生为真实 Codex worker，并把 worker 结果回写给 Steve。",
+    "",
+    "## 控制面",
+    "",
+    "- Steve Web/API 是控制面：生成任务、维护 worker 状态、组织上下文、记录结果、做总质检。",
+    "- 当前 Codex App 会话是 Operator：读取 inbox、认领 worker、派生真实 Codex agent、回收上下文。",
+    "- 每个 worker 必须是独立 Codex agent，不要把多个 worker 的工作混在一个上下文里。",
+    "",
+    "## API",
+    "",
+    "- `GET /api/codex/operator/inbox?targetId=codenext`：读取总控上下文、待派生 worker 和回写 endpoint。",
+    "- `POST /api/runs/:runId/items/:itemId/operator-claim`：认领 worker，标记为真实执行中。",
+    "- `POST /api/runs/:runId/items/:itemId/handoff-result`：worker 完成后回写中文报告和证据。",
+    "- `POST /api/codex/operator/heartbeat`：Operator 心跳，证明当前 Codex App 还在接管。",
+    "",
+    "## 执行循环",
+    "",
+    "1. 读取 inbox。",
+    "2. 按 priority 选择一个 `readyToClaim` worker。",
+    "3. 调用 operator-claim。",
+    "4. 派生真实 Codex worker，并把 inbox 中的 `workerPrompt` 交给它。",
+    "5. 等 worker 完成，确认它已回写 handoff-result。",
+    "6. Steve 重新验证；不足 100 分时继续派生下一轮。",
+    "",
+    "## 边界",
+    "",
+    "- CodeNext 产品仓库提交和用户可见文案不能暴露 Steve、run id、worker id、worktree 路径、用户原话需求或内部验证链路。",
+    "- Worker 可以搜索高星 GitHub 项目作为参考，但必须说明参考点和适用原因。",
+    "- Worker 的建议只是输入，总质检才决定是否回收或继续迭代。",
+    "",
+  ].join("\n"), "utf-8");
+  return operator;
+}
+
+function updateCodexOperatorHeartbeat(input = {}) {
+  const current = codexOperatorStatus().active ? codexOperatorStatus() : registerCodexOperator(input);
+  const next = {
+    ...current,
+    status: "active",
+    lastSeenAt: new Date().toISOString(),
+    message: input.message || current.message || "Codex App Operator 在线",
+  };
+  writeFileSync(codexOperatorFile(), `${JSON.stringify(next, null, 2)}\n`, "utf-8");
+  return next;
+}
+
+function operatorWorkerPrompt(run, item) {
+  const session = latestAppHandoffSession(item);
+  return [
+    `你是 Steve 总控 agent 派生的真实 Codex worker。`,
+    ``,
+    `目标项目：${run.targetName}`,
+    `Run：${run.id}`,
+    `Item：${item.id}`,
+    `标题：${item.title}`,
+    `状态：${item.status}`,
+    `建议 skill：${item.skill || "auto-discovered"}`,
+    `价值评分：${item.valueScore}`,
+    `风险：${item.risk}`,
+    `工作区：${item.worktreePath}`,
+    `共享上下文：${run.runContextPath || ""}`,
+    `任务上下文：${item.contextPath || session?.contextPath || ""}`,
+    `结果回写 endpoint：POST /api/runs/${run.id}/items/${item.id}/handoff-result`,
+    ``,
+    `Steve 观察：${item.finding}`,
+    `Steve 建议：${item.proposal}`,
+    ``,
+    `执行要求：`,
+    `- 先读取共享上下文和任务上下文。`,
+    `- 如需参考外部实践，可以搜索 GitHub 高星项目，并说明参考理由。`,
+    `- 必须真实验证，不要只做静态推断。`,
+    `- 完成后用中文回写 handoff-result，包含 summary/report/recommendation/qualityScore/evidencePaths/verification/nextWorkers。`,
+    `- 不要把 Steve 内部细节写进 CodeNext 对外文案、提交信息或 README。`,
+  ].join("\n");
+}
+
+function operatorInbox(targetId = "codenext") {
+  const operator = codexOperatorStatus();
+  const loop = codexOperatorLoopStatus();
+  const run = latestRunForTarget(targetId);
+  if (!run) {
+    return {
+      operator,
+      loop,
+      targetId,
+      run: null,
+      readyToClaim: [],
+      running: [],
+      completed: [],
+      message: "还没有 Steve run，请先从 Web 或 API 创建体验计划。",
+    };
+  }
+  refreshCoordination(run);
+  const latest = findRun(run.id) || run;
+  const workerItems = (latest.items || []).filter((item) => item.codexSessions?.some((session) => session.mode === "app-handoff"));
+  const toEntry = (item) => {
+    const session = latestAppHandoffSession(item);
+    return {
+      runId: latest.id,
+      itemId: item.id,
+      title: item.title,
+      type: item.type,
+      status: item.status,
+      sessionStatus: session?.status || null,
+      priority: Number(item.valueScore || 0),
+      agent: item.agent,
+      skill: item.skill,
+      contextPath: item.contextPath || session?.contextPath || null,
+      resultPath: item.resultPath || session?.resultPath || null,
+      worktreePath: item.worktreePath || null,
+      claimEndpoint: `/api/runs/${latest.id}/items/${item.id}/operator-claim`,
+      resultEndpoint: `/api/runs/${latest.id}/items/${item.id}/handoff-result`,
+      workerPrompt: operatorWorkerPrompt(latest, item),
+    };
+  };
+  const readyToClaim = workerItems
+    .filter((item) => (
+      item.status !== "rejected"
+      && item.status !== "codex-completed"
+      && item.status !== "validated"
+      && latestAppHandoffSession(item)?.status !== "completed"
+      && (
+        ["handoff-ready", "context-ready"].includes(item.status)
+        || ["handoff-ready", "context-ready"].includes(latestAppHandoffSession(item)?.status)
+      )
+    ))
+    .sort((a, b) => Number(b.valueScore || 0) - Number(a.valueScore || 0))
+    .map(toEntry);
+  const running = workerItems
+    .filter((item) => item.status === "in-progress" || latestAppHandoffSession(item)?.status === "running")
+    .sort((a, b) => Number(b.valueScore || 0) - Number(a.valueScore || 0))
+    .map(toEntry);
+  const completed = workerItems
+    .filter((item) => (
+      item.status !== "rejected"
+      && (item.status === "codex-completed" || latestAppHandoffSession(item)?.status === "completed")
+    ))
+    .sort((a, b) => Number(b.updatedAt ? Date.parse(b.updatedAt) : 0) - Number(a.updatedAt ? Date.parse(a.updatedAt) : 0))
+    .map(toEntry);
+  const decisionSummary = buildRunDecisionSummary(latest);
+  return {
+    operator,
+    loop,
+    targetId,
+    run: {
+      id: latest.id,
+      targetName: latest.targetName,
+      targetAppUrl: latest.targetAppUrl,
+      targetRoot: latest.targetRoot,
+      productMode: latest.productMode,
+      status: latest.status,
+      runContextPath: latest.runContextPath,
+      coordinationPath: latest.coordinationPath,
+      coordination: latest.coordination,
+    },
+    policy: {
+      steveRole: "master-agent-session",
+      operatorRole: "current-codex-app-session",
+      workerRole: "spawned-codex-agent",
+      qualityGate: 100,
+      workerRecommendationIsInputOnly: true,
+      requireSkillDecision: true,
+    },
+    queues: {
+      readyToClaimCount: readyToClaim.length,
+      runningCount: running.length,
+      completedCount: completed.length,
+      mergeReadyCount: decisionSummary.mergeReady.length,
+      needsContinuationCount: decisionSummary.needsContinuation.length,
+    },
+    readyToClaim,
+    running,
+    completed,
+    nextAction: readyToClaim[0]
+      ? `派生真实 Codex worker 处理：${readyToClaim[0].title}`
+      : (running[0] ? "等待 running worker 回写 handoff-result" : "没有待派生 worker，可让 Steve 自动发现下一批任务"),
+  };
+}
+
+function operatorLoopDiscoveryPayload(loop, run) {
+  const directive = String(loop.directive || "").trim() || "继续寻找 CodeNext 云端 AI 编程工作台的高价值产品体验优化点";
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+z$/i, "z").toLowerCase();
+  const clean = directive.replace(/\s+/g, " ").slice(0, 72);
+  return {
+    id: `loop-discovery-${stamp}`,
+    title: `循环探索：${clean}`,
+    type: "discovery",
+    valueScore: 94,
+    risk: "medium",
+    agent: "Steve loop discovery worker",
+    skill: "auto-discovered",
+    finding: `Operator Loop 根据方向自动生成探索任务：${directive}`,
+    proposal: "参考高星项目和真实产品路径，发现下一批可执行优化点；不要直接改代码，先产出可拆 worker。",
+    checklist: [
+      "参考高星项目或成熟产品实践并说明适用性",
+      "评估用户价值、实现成本、验证方式",
+      "输出 2-5 个下一轮可执行 worker",
+      "回写中文报告和质量评分",
+    ],
+    selected: true,
+    recommendation: "recommended",
+    status: "handoff-ready",
+  };
+}
+
+function operatorLoopTick(input = {}) {
+  const current = codexOperatorLoopStatus();
+  const loop = writeCodexOperatorLoop({
+    status: current.status === "active" ? "active" : (input.start ? "active" : current.status || "idle"),
+    targetId: input.targetId || current.targetId || "codenext",
+    directive: input.directive ?? current.directive ?? "",
+    autoDiscover: input.autoDiscover ?? current.autoDiscover ?? true,
+    lastTickAt: new Date().toISOString(),
+    tickCount: Number(current.tickCount || 0) + 1,
+  });
+  updateCodexOperatorHeartbeat({ message: "Operator Loop tick" });
+  let inbox = operatorInbox(loop.targetId);
+  let created = null;
+  if (
+    loop.status === "active"
+    && loop.autoDiscover
+    && inbox.run
+    && inbox.readyToClaim.length === 0
+    && inbox.running.length === 0
+  ) {
+    const rawRun = findRun(inbox.run.id);
+    const materialized = materializeStoredNextWorkers(rawRun);
+    if (materialized.length) {
+      created = materialized[0];
+      writeCodexOperatorLoop({ spawnedCount: Number(loop.spawnedCount || 0) + materialized.length });
+    } else {
+      created = registerFocusedItem(rawRun, operatorLoopDiscoveryPayload(loop, rawRun));
+      writeCodexOperatorLoop({ spawnedCount: Number(loop.spawnedCount || 0) + 1 });
+    }
+    inbox = operatorInbox(loop.targetId);
+  }
+  const nextWorker = inbox.readyToClaim[0] || null;
+  const nextAction = nextWorker
+    ? {
+      type: "spawn-worker",
+      runId: nextWorker.runId,
+      itemId: nextWorker.itemId,
+      title: nextWorker.title,
+      claimEndpoint: nextWorker.claimEndpoint,
+      resultEndpoint: nextWorker.resultEndpoint,
+      workerPrompt: nextWorker.workerPrompt,
+    }
+    : {
+      type: inbox.running.length ? "wait-running" : "idle",
+      message: inbox.running.length ? "等待 running worker 回写 handoff-result" : "没有待派生 worker",
+    };
+  return {
+    ok: true,
+    loop: codexOperatorLoopStatus(),
+    created: created ? { itemId: created.id, title: created.title } : null,
+    inbox,
+    nextAction,
+  };
+}
+
+function claimCodexWorker(run, itemId, input = {}) {
+  let item = run.items.find((candidate) => candidate.id === itemId);
+  if (!item) throw new Error("item not found");
+  if (!latestAppHandoffSession(item)) {
+    startCodexSession(run, itemId, { executor: "app-handoff" });
+    const latest = findRun(run.id) || run;
+    item = latest.items.find((candidate) => candidate.id === itemId);
+    run = latest;
+  }
+  const operator = codexOperatorStatus().active ? codexOperatorStatus() : registerCodexOperator(input.operator || {});
+  const session = latestAppHandoffSession(item);
+  const now = new Date().toISOString();
+  session.status = "running";
+  session.operatorId = operator.id;
+  session.claimedAt = now;
+  session.claimedBy = operator.label;
+  item.status = "in-progress";
+  item.operatorId = operator.id;
+  item.updatedAt = now;
+  run.updatedAt = now;
+  run.currentCodexOperator = {
+    id: operator.id,
+    label: operator.label,
+    status: operator.status,
+    lastSeenAt: now,
+  };
+  run.report = buildReport(run);
+  saveRun(run);
+  refreshCoordination(run);
+  return { run: findRun(run.id) || run, item, session, operator };
 }
 
 function notifyCurrentCodex(run, options = {}) {
@@ -1267,6 +1682,82 @@ function startCodexSession(run, itemId, options = {}) {
   return session;
 }
 
+function nextWorkerInput(parentItem, worker, index) {
+  if (typeof worker === "string") {
+    return {
+      title: worker,
+      finding: `由 ${parentItem.title} 回写结果派生的下一轮 focused worker。`,
+      proposal: "围绕该方向完成一个可验证的最小闭环，并回写中文结果。",
+    };
+  }
+  return {
+    title: worker.title || worker.name || worker.id || `${parentItem.title} 下一轮 ${index + 1}`,
+    type: worker.type || "optimization",
+    valueScore: worker.valueScore || worker.priority || Math.max(80, Number(parentItem.valueScore || 90) - 2),
+    risk: worker.risk || parentItem.risk || "medium",
+    agent: worker.agent || worker.role || "focused Codex worker",
+    skill: worker.skill || worker.suggestedSkill || "auto-discovered",
+    finding: worker.finding || worker.reason || `由 ${parentItem.title} 回写结果派生的下一轮 focused worker。`,
+    proposal: worker.proposal || worker.task || worker.description || "完成一个具体产品优化点并回写 result.md。",
+    checklist: Array.isArray(worker.checklist) ? worker.checklist : undefined,
+  };
+}
+
+function materializeNextWorkers(run, parentItem, nextWorkers = []) {
+  const created = [];
+  const list = Array.isArray(nextWorkers) ? nextWorkers : [];
+  for (const [index, worker] of list.entries()) {
+    const input = nextWorkerInput(parentItem, worker, index);
+    const id = slug(`next-${parentItem.id}-${index + 1}-${input.title}`);
+    if (run.items.some((item) => item.id === id)) continue;
+    const item = registerFocusedItem(run, {
+      id,
+      title: input.title,
+      type: input.type || "optimization",
+      valueScore: input.valueScore || Math.max(80, Number(parentItem.valueScore || 90) - 2),
+      risk: input.risk || parentItem.risk || "medium",
+      agent: input.agent || "focused Codex worker",
+      skill: input.skill || "auto-discovered",
+      finding: input.finding,
+      proposal: input.proposal,
+      checklist: input.checklist || [
+        "读取父任务结果和共享上下文",
+        "判断是否需要 skill 并记录理由",
+        "完成真实验证或说明无法验证原因",
+        "回写中文 handoff-result",
+      ],
+      selected: true,
+      recommendation: "recommended",
+      status: "handoff-ready",
+    });
+    item.parentItemId = parentItem.id;
+    item.parentTitle = parentItem.title;
+    created.push(item);
+  }
+  return created;
+}
+
+function materializeStoredNextWorkers(run) {
+  const created = [];
+  for (const item of run.items || []) {
+    const nextWorkers = Array.isArray(item.nextWorkers) ? item.nextWorkers : [];
+    if (!nextWorkers.length) continue;
+    const already = new Set(item.materializedNextWorkerIds || []);
+    const before = new Set((run.items || []).map((candidate) => candidate.id));
+    const materialized = materializeNextWorkers(run, item, nextWorkers)
+      .filter((worker) => !already.has(worker.id) && !before.has(worker.id));
+    if (materialized.length) {
+      item.materializedNextWorkerIds = Array.from(new Set([...(item.materializedNextWorkerIds || []), ...materialized.map((worker) => worker.id)]));
+      created.push(...materialized);
+    }
+  }
+  if (created.length) {
+    run.updatedAt = new Date().toISOString();
+    refreshCoordination(run);
+  }
+  return created;
+}
+
 function recordHandoffResult(run, itemId, result = {}) {
   const item = run.items.find((candidate) => candidate.id === itemId);
   if (!item) throw new Error("item not found");
@@ -1314,6 +1805,8 @@ function recordHandoffResult(run, itemId, result = {}) {
   item.resultPath = resultPath;
   item.dependsOn = result.dependsOn || item.dependsOn || [];
   item.nextWorkers = result.nextWorkers || [];
+  const materialized = materializeNextWorkers(run, item, item.nextWorkers);
+  item.materializedNextWorkerIds = materialized.map((worker) => worker.id);
   item.updatedAt = finishedAt;
   run.updatedAt = finishedAt;
   refreshCoordination(run);
@@ -1869,6 +2362,29 @@ async function route(req, res) {
       const run = await autoRunTarget(body.targetId || "codenext");
       return send(res, 200, { ok: true, run: sanitizeRunForDisplay(run), mergePlan: mergePlan(run) });
     }
+    if (req.method === "GET" && url.pathname === "/api/codex/operator") {
+      return send(res, 200, { operator: codexOperatorStatus() });
+    }
+    if (req.method === "POST" && url.pathname === "/api/codex/operator") {
+      return send(res, 200, { ok: true, operator: registerCodexOperator(await readBody(req)) });
+    }
+    if (req.method === "GET" && url.pathname === "/api/codex/operator/inbox") {
+      return send(res, 200, operatorInbox(url.searchParams.get("targetId") || "codenext"));
+    }
+    if (req.method === "POST" && url.pathname === "/api/codex/operator/heartbeat") {
+      return send(res, 200, { ok: true, operator: updateCodexOperatorHeartbeat(await readBody(req)) });
+    }
+    if (req.method === "GET" && url.pathname === "/api/codex/operator/loop") {
+      return send(res, 200, { loop: codexOperatorLoopStatus() });
+    }
+    if (req.method === "POST" && url.pathname === "/api/codex/operator/loop") {
+      const body = await readBody(req);
+      const status = body.action === "pause" ? "paused" : (body.action === "stop" ? "stopped" : "active");
+      return send(res, 200, { ok: true, loop: writeCodexOperatorLoop({ ...body, status }) });
+    }
+    if (req.method === "POST" && url.pathname === "/api/codex/operator/loop/tick") {
+      return send(res, 200, operatorLoopTick(await readBody(req)));
+    }
     const runMatch = url.pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (req.method === "GET" && runMatch) {
       const run = findRun(runMatch[1]);
@@ -1881,6 +2397,25 @@ async function route(req, res) {
       if (!run) return send(res, 404, { error: "run not found" });
       const plan = refreshCoordination(run);
       return send(res, 200, { ok: true, run: sanitizeRunForDisplay(run), plan });
+    }
+    const notifyMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/codex-notification$/);
+    if (req.method === "POST" && notifyMatch) {
+      const run = findRun(notifyMatch[1]);
+      if (!run) return send(res, 404, { error: "run not found" });
+      const body = await readBody(req);
+      refreshCoordination(run);
+      const notification = notifyCurrentCodex(run, {
+        reason: body.reason || "Steve Web console requested Codex App handoff.",
+      });
+      return send(res, 200, {
+        ok: true,
+        run: sanitizeRunForDisplay(findRun(run.id) || run),
+        notification: {
+          id: notification.id,
+          status: notification.status,
+          restartItemCount: notification.restartItems.length,
+        },
+      });
     }
     const itemMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/items\/([^/]+)$/);
     if (req.method === "PATCH" && itemMatch) {
@@ -1901,6 +2436,19 @@ async function route(req, res) {
       if (!run) return send(res, 404, { error: "run not found" });
       const item = registerFocusedItem(run, await readBody(req));
       return send(res, 200, { ok: true, run: sanitizeRunForDisplay(findRun(run.id) || run), item: sanitizeItemForDisplay(item) });
+    }
+    const claimMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/items\/([^/]+)\/operator-claim$/);
+    if (req.method === "POST" && claimMatch) {
+      const run = findRun(claimMatch[1]);
+      if (!run) return send(res, 404, { error: "run not found" });
+      const claimed = claimCodexWorker(run, claimMatch[2], await readBody(req));
+      return send(res, 200, {
+        ok: true,
+        run: sanitizeRunForDisplay(claimed.run),
+        item: sanitizeItemForDisplay(claimed.item),
+        session: sanitizeSessionForDisplay(claimed.session),
+        operator: claimed.operator,
+      });
     }
     const wtMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/items\/([^/]+)\/worktree$/);
     if (req.method === "POST" && wtMatch) {
