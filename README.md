@@ -29,6 +29,24 @@ Each target defines:
 
 Steve can manage multiple targets without adding UI or API code to those targets.
 
+## Product Repository Privacy
+
+Steve must keep orchestration details out of product repositories.
+
+For a target such as CodeNext, the product repo is user-facing and collaborator-facing. Steve may keep run ids, worker ids, handoff files, worktree paths, reports, and user request context inside the Steve repo, but it must not expose those details through the product repo's Git refs, commit messages, PR titles, docs, UI text, or release notes.
+
+Target config supports:
+
+```json
+"gitPrivacy": {
+  "noNamedWorkerBranches": true,
+  "sanitizeProductCommits": true,
+  "hideSteveInternalsFromCollaborators": true
+}
+```
+
+When `noNamedWorkerBranches` is enabled, Steve creates detached worktrees instead of named branches such as `steve/codenext/<run>/<worker>`. Product commits should describe only the product change, for example `fix: improve skill hub layout`, not Steve's run, worker, validation chain, or the user's private prompt.
+
 ## Codex App Handoff
 
 Steve does not assume a Codex CLI exists in the target environment.
@@ -55,7 +73,7 @@ Every auto run is coordinated by Steve and executed by multiple Codex App worker
 Steve writes two run-level files:
 
 - `.steve/runs/<run>/run-context.md`: the shared parent context all workers should read first.
-- `.steve/runs/<run>/coordination.json`: the worker graph, context paths, result paths, status, dependencies, and visual baseline.
+- `.steve/runs/<run>/coordination.json`: the worker graph, context paths, result paths, status, dependencies, visual baseline, target health snapshot, night window, and morning recovery queue.
 
 Each worker also receives its own item-level handoff pack:
 
@@ -67,9 +85,21 @@ The intended loop is:
 
 1. Steve runs visual scoring and registers several Codex App handoffs.
 2. Each Codex worker reads the shared run context plus its item context.
-3. Workers operate in isolated external worktrees.
-4. Workers return Chinese reports through the handoff result endpoint.
-5. Steve refreshes the coordination graph, report, and next-step candidates.
+3. Before work starts, the worker decides whether the task needs a skill. If it does, the worker discovers or selects a suitable skill and records why that skill improves precision.
+4. Workers operate in isolated external worktrees.
+5. Workers return Chinese reports through the handoff result endpoint.
+6. Steve refreshes the coordination graph, report, and next-step candidates.
+
+Steve treats 100 points as the acceptance gate for a candidate, not as the end of the loop. A candidate is not accepted until product-flow verification, visual verification, regression checks, a Chinese why-it-matters report, and a merge/continue/abandon recommendation are all present. If the candidate is below 100, Steve should create the next focused worker handoff and keep optimizing. If every current candidate reaches 100, Steve should discover the next batch of high-value product, verification, or feature opportunities and keep going.
+
+Worker recommendations are input evidence, not final authority. After workers finish, a post-worker quality controller reads `coordination.json`, all `result.md` files, changed paths, tests, visual reports, and service status. Only this quality controller can promote a candidate to merge-ready. Its output must also include the next worker handoffs so the loop never becomes idle.
+
+Morning recovery is intentionally decision-first:
+
+- `merge` is shown as ready only when `qualityScore` is exactly `100`, a result exists, and the worker supplied evidence.
+- `needs-polish` keeps the item in the continuation queue.
+- `needs-human` separates ambiguous choices from merge-ready work.
+- `reject`/`abandon` keeps the branch out of the merge queue.
 
 Result ingestion endpoint:
 
@@ -84,7 +114,70 @@ Minimal body:
   "summary": "中文结论",
   "report": "# 中文报告...",
   "recommendation": "merge",
+  "qualityScore": 100,
+  "evidencePaths": [".steve/runs/<run>/<item>/result.md"],
+  "changedPaths": ["server.js", "public/app.js"],
+  "verification": {
+    "productFlow": "不适用：本次只改 Steve 编排协议",
+    "visual": "已在 Steve 看板复核",
+    "regression": "npm run check 通过"
+  },
   "dependsOn": ["visual-quality-score"],
   "nextWorkers": ["mobile-regression"]
 }
+```
+
+## Current Codex Restart Notification
+
+Automation runs can continue without starting the Steve HTTP server:
+
+```bash
+node scripts/auto-run.mjs codenext
+```
+
+After each CLI auto-run, Steve notifies the current Steve work Codex through:
+
+- `.steve/codex/latest-notification.json`
+- `.steve/codex/restart-request.json`
+- `.steve/codex/latest.md`
+- `.steve/codex/notifications.jsonl`
+
+The notification tells the current Codex worker which run context and coordination plan to reload, and which `handoff-ready` or `needs-polish` tasks should be restarted. Use `--no-notify-current-codex` only for local smoke tests that should not wake the current work loop.
+
+If a Codex App worker wrote `result.md` but could not call the HTTP handoff endpoint, ingest the result files directly:
+
+```bash
+node scripts/ingest-results.mjs --target=codenext
+node scripts/ingest-results.mjs --run=steve-... --force
+```
+
+This refreshes `.steve/runs.json`, `run-context.md`, and `coordination.json` from existing Steve result files without touching the target product repository.
+
+## Current Codex Watchdog
+
+Steve can also monitor whether the current Steve work Codex is actually moving. If a run stays on pending handoff work for too long, the watchdog writes a nudge and refreshes the restart request:
+
+```bash
+node scripts/watch-current-codex.mjs --target=codenext --idle-minutes=10
+```
+
+Useful variants:
+
+```bash
+node scripts/watch-current-codex.mjs --force
+node scripts/watch-current-codex.mjs --auto-run
+node scripts/watch-current-codex.mjs --loop --idle-minutes=10 --interval-minutes=5
+```
+
+Watchdog output is written under `.steve/codex/`:
+
+- `latest-nudge.json`
+- `latest-nudge.md`
+- `nudges.jsonl`
+
+The HTTP server exposes the same control surface:
+
+```text
+GET  /api/codex/watchdog?targetId=codenext&idleMs=600000
+POST /api/codex/watchdog
 ```

@@ -8,6 +8,11 @@
       "appUrl": "http://127.0.0.1:3599",
       "baseBranch": "main",
       "worktreeDir": "/Users/cds-dn419/PycharmProjects/steve/worktrees/codenext",
+      "gitPrivacy": {
+        "noNamedWorkerBranches": true,
+        "sanitizeProductCommits": true,
+        "hideSteveInternalsFromCollaborators": true
+      },
       "visualScore": {
         "enabled": true,
         "adapter": "codex-product-experience-agent",
