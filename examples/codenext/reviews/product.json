@@ -1,0 +1,138 @@
+{
+  "id": "codenext-product-review",
+  "name": "CodeNext 产品体验评审",
+  "workflow": "codenext-product",
+  "login": true,
+  "tempProjectPrefix": "steve_px",
+  "plans": [
+    {
+      "id": "activation",
+      "name": "首次激活与空状态",
+      "productQuestion": "第一次进入产品时，用户是否知道这是什么、下一步做什么，以及为什么值得继续？",
+      "successSignals": [
+        "登录顺畅",
+        "空状态有明确下一步",
+        "新建项目入口明显",
+        "创建项目后状态不让人迷路"
+      ],
+      "experienceScope": [
+        "登录",
+        "工作台空状态",
+        "新建项目弹窗",
+        "创建后的状态"
+      ]
+    },
+    {
+      "id": "core-coding",
+      "name": "核心创作闭环",
+      "productQuestion": "用户是否能从项目进入真实创作状态，并理解项目、会话、文件和 Git 之间的关系？",
+      "successSignals": [
+        "项目可以打开",
+        "会话入口可见",
+        "项目 API 稳定",
+        "新项目的 Git 状态不误导用户"
+      ],
+      "experienceScope": [
+        "打开项目",
+        "会话列表",
+        "Git 状态"
+      ]
+    },
+    {
+      "id": "ai-readiness",
+      "name": "AI 能力可信度",
+      "productQuestion": "用户是否能确认 AI 已经可用，并且知道失败时去哪里排查？",
+      "successSignals": [
+        "网关配置可见",
+        "模型列表可访问",
+        "网关日志可访问",
+        "空日志状态能解释下一步"
+      ],
+      "experienceScope": [
+        "设置页",
+        "模型发现",
+        "网关日志"
+      ]
+    },
+    {
+      "id": "ecosystem",
+      "name": "生态扩展与技能",
+      "productQuestion": "用户是否能理解技能和 MCP 是扩展产品能力的方式？",
+      "successSignals": [
+        "技能中心容易理解",
+        "MCP 扩展可浏览",
+        "推荐能力能连接用户目标"
+      ],
+      "experienceScope": [
+        "技能中心",
+        "MCP 扩展"
+      ]
+    },
+    {
+      "id": "opensource",
+      "name": "开源发布准备",
+      "productQuestion": "外部开发者是否能通过文档、API、导入和设置路径完成自助上手？",
+      "successSignals": [
+        "文档解释清楚产品定位",
+        "快速开始足够短",
+        "导入直达页能自恢复",
+        "API 文档可访问"
+      ],
+      "experienceScope": [
+        "文档概览",
+        "快速开始",
+        "导入直达页"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "priority": "P1",
+      "planId": "activation",
+      "issue": "首次进入工作台后，主区域缺少真正的激活主 CTA",
+      "evidence": "空状态主要提示用户从左侧选择项目，而不是引导用户完成创建项目、验证 AI 网关、发起第一条任务。",
+      "evolution": "把空白画布改成三步激活路径：创建项目、验证 AI 网关、发起第一条任务。完成后自动隐藏。",
+      "fixDirection": "在主画布增加首次使用面板，保留一个主按钮和两个次级动作。"
+    },
+    {
+      "priority": "P1",
+      "planId": "core-coding",
+      "issue": "项目、会话、AI 任务之间的关系仍需要用户自己推断",
+      "evidence": "创建项目后，用户还需要点击项目并发现新建会话入口；产品没有明确解释项目是代码目录，会话是一次 AI 工作线程。",
+      "evolution": "创建项目成功后自动打开项目，并提供任务模板，例如检查当前项目、创建第一个文件、打开终端。",
+      "fixDirection": "项目创建成功后直接进入项目上下文，并展示清晰的下一步任务卡片。"
+    },
+    {
+      "priority": "P2",
+      "planId": "ai-readiness",
+      "issue": "网关设置可信但过于工程实现导向",
+      "evidence": "设置页暴露 env、spawn、proxy、容器内 proxy 等术语；这些信息适合排障，但对首次配置偏重。",
+      "evolution": "把设置页拆成连接状态卡片和高级配置区域；默认展示模型可用性、延迟、最近一次请求状态。",
+      "fixDirection": "把 env/proxy/spawn 等低层说明收进“高级详情”。"
+    },
+    {
+      "priority": "P2",
+      "planId": "ai-readiness",
+      "issue": "网关日志空态没有解释日志如何产生",
+      "evidence": "0 条日志时，页面仍提示从左侧选择一条请求。",
+      "evolution": "说明日志会在发起 AI 请求后出现，并提供跳转到新建会话或测试网关的入口。",
+      "fixDirection": "替换空详情文案，改成带下一步动作的空状态。"
+    },
+    {
+      "priority": "P2",
+      "planId": "ecosystem",
+      "issue": "技能中心功能完整，但推荐还没有围绕用户意图产品化",
+      "evidence": "页面列出了很多选项，但没有解释某个技能为什么适合当前用户目标。",
+      "evolution": "把技能搜索和 LLM 重排序包装成意图流程：描述目标、获得推荐、安装技能、开启带技能的新会话。",
+      "fixDirection": "在推荐区上方增加目标输入，并标注每个推荐技能的匹配原因。"
+    },
+    {
+      "priority": "P2",
+      "planId": "opensource",
+      "issue": "开源快速开始有用，但对个人版仍不够短",
+      "evidence": "Quickstart 仍包含云端容器等部署假设；本地个人用户更需要 5 分钟跑通路径。",
+      "evolution": "新增个人版快速开始：安装、配置 OpenAI 兼容网关、创建项目、发起第一条任务。",
+      "fixDirection": "在 README 或文档首页增加本地优先的快速开始段落，给出命令和预期首屏。"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "apple-smoothness",
+  "name": "Apple-like smoothness heuristics",
+  "description": "Not pixel-level Apple imitation. Checks clarity, low friction, graceful failure, and closed loops.",
+  "textRules": [
+    {
+      "name": "internal-enterprise-leak",
+      "pattern": "钉钉|平台消息|工作通知|internal-domain.example|internal-market.example|internal-company.example",
+      "flags": "i",
+      "priority": "P0",
+      "issue": "Internal or enterprise-only copy is visible",
+      "suggestion": "Remove internal domains, internal messaging channels, and enterprise-only copy.",
+      "autoFixable": true
+    },
+    {
+      "name": "implementation-detail-copy",
+      "pattern": "缺 ticket|missing ticket",
+      "flags": "i",
+      "priority": "P2",
+      "issue": "Implementation-detail error copy is visible",
+      "suggestion": "Translate implementation details into user language and provide a clear next step.",
+      "autoFixable": true
+    }
+  ]
+}

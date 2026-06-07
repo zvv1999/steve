@@ -1,0 +1,42 @@
+{
+  "id": "open-source-readiness",
+  "name": "Open-source readiness core journey",
+  "login": true,
+  "journeys": [
+    {
+      "id": "home",
+      "name": "Workbench home",
+      "path": "/",
+      "goal": "After login, the user can understand the current state and find a next step.",
+      "expect": ["CodeNext"]
+    },
+    {
+      "id": "settings",
+      "name": "Settings",
+      "path": "/settings.html",
+      "goal": "The user can find AI gateway settings and understand personal-edition notification limits.",
+      "expect": ["AI 网关"]
+    },
+    {
+      "id": "docs",
+      "name": "Docs home",
+      "path": "/docs/",
+      "goal": "Docs clearly explain the product positioning.",
+      "expect": ["CodeNext 文档", "云端 AI 编程平台"]
+    },
+    {
+      "id": "import-direct",
+      "name": "Direct import route",
+      "path": "/import.html",
+      "goal": "A user who opens the import route directly should not hit a dead end.",
+      "expect": ["导入", "回主站"]
+    },
+    {
+      "id": "skillhub",
+      "name": "Skill Hub",
+      "path": "/skillhub.html",
+      "goal": "The user can understand local skill workflows.",
+      "expect": ["技能中心", "本地"]
+    }
+  ]
+}

@@ -219,3 +219,29 @@ The HTTP server exposes the same control surface:
 GET  /api/codex/watchdog?targetId=codenext&idleMs=600000
 POST /api/codex/watchdog
 ```
+
+## CLI Experience Examples
+
+The repository also keeps the CLI-style product experience runner under `src/cli.mjs`.
+It is useful when Steve needs repeatable browser journeys or visual scoring artifacts
+without opening the Web control plane.
+
+```bash
+npm run example:codenext
+npm run example:codenext:review
+npm run example:codenext:visual
+```
+
+The CodeNext example configs live under `examples/codenext/`:
+
+- `personas/default.json`: the user perspective for the run.
+- `journeys/*.json`: repeatable product paths.
+- `heuristics/default.json`: smoothness and dead-end checks.
+- `reviews/product.json`: product review plans and success signals.
+- `visual/skillhub.json`: visual scoring setup for the Skill Hub.
+
+CLI outputs are written under `artifacts/`, which is intentionally ignored by Git.
+
+## License
+
+MIT

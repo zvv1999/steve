@@ -1,0 +1,56 @@
+{
+  "id": "codenext-skillhub-visual",
+  "name": "CodeNext Skill Hub visual score",
+  "path": "/skillhub.html",
+  "minScore": 92,
+  "viewports": [
+    { "id": "desktop", "width": 1440, "height": 1100 },
+    { "id": "mobile", "width": 390, "height": 844, "deviceScaleFactor": 2 }
+  ],
+  "selectors": {
+    "ready": ".sk-scenario",
+    "cards": ".sk-card, .sk-curated-card",
+    "marketCards": "#sk-list .sk-card",
+    "curatedCards": "#sk-curated .sk-curated-card",
+    "scenarioButtons": ".sk-scenario",
+    "filters": ".sk-filter",
+    "groupTitles": ".sk-curated-group-title",
+    "stats": "#sk-stats",
+    "notice": "#sk-notice",
+    "matchReasons": ".sk-match-reason",
+    "overflowTargets": ".sk-card, .sk-curated-card, .sk-filter, .sk-scenario, .sk-btn, .sk-search"
+  },
+  "interactions": [
+    {
+      "id": "search-api",
+      "name": "搜索 API",
+      "steps": [
+        { "type": "fill", "selector": "#sk-search", "value": "API" },
+        { "type": "wait", "ms": 150 }
+      ],
+      "expectMatchReasons": true
+    },
+    {
+      "id": "scenario-backend",
+      "name": "后端数据场景",
+      "steps": [
+        { "type": "fill", "selector": "#sk-search", "value": "" },
+        { "type": "clickText", "selector": ".sk-scenario", "text": "后端数据" },
+        { "type": "wait", "ms": 150 }
+      ],
+      "expectGroupTitle": "后端数据"
+    }
+  ],
+  "requirements": {
+    "statsIncludes": ["CodeNext 官方"],
+    "minScenarioButtons": 6,
+    "desktopRequiresGroups": true,
+    "maxSmallTargets": 3
+  },
+  "advice": [
+    "官方技能应继续按任务场景分组，而不是按来源平铺。",
+    "搜索必须给出命中原因，避免用户不知道为什么推荐该技能。",
+    "安装成功必须提示下一步：新会话自动激活。",
+    "每次改技能中心，都应运行 Steve visual score。"
+  ]
+}

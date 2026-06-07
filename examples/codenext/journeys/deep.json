@@ -1,0 +1,117 @@
+{
+  "id": "codenext-deep-open-source-readiness",
+  "name": "CodeNext deep open-source readiness journey",
+  "login": true,
+  "viewports": [
+    { "id": "desktop", "width": 1440, "height": 1000 },
+    { "id": "mobile", "width": 390, "height": 844 }
+  ],
+  "journeys": [
+    {
+      "id": "home-empty-state",
+      "name": "Workbench empty state",
+      "path": "/",
+      "goal": "A first-time solo developer can understand what CodeNext is and find the next action without internal-enterprise hints.",
+      "expect": ["CodeNext", "项目", "新建", "设置"]
+    },
+    {
+      "id": "settings-gateway",
+      "name": "Gateway settings",
+      "path": "/settings.html",
+      "goal": "The AI gateway setup feels local-first, understandable, and safe for personal open-source use.",
+      "expect": ["设置", "AI 网关", "上游网关 URL", "Auth Token"]
+    },
+    {
+      "id": "docs-overview",
+      "name": "Docs overview",
+      "path": "/docs/",
+      "goal": "The docs clearly introduce CodeNext as a cloud AI coding platform for an outside user.",
+      "expect": ["云端 AI 编程平台", "快速开始"]
+    },
+    {
+      "id": "docs-quickstart",
+      "name": "Docs quickstart",
+      "path": "/docs/quickstart/",
+      "goal": "A new open-source user can find a practical first-run path.",
+      "expect": ["快速开始"]
+    },
+    {
+      "id": "import-direct",
+      "name": "Direct import route",
+      "path": "/import.html",
+      "goal": "Opening import directly should be a graceful, closed-loop experience instead of an implementation error.",
+      "expect": ["请从主界面开始导入", "回主站"]
+    },
+    {
+      "id": "skillhub",
+      "name": "Skill Hub",
+      "path": "/skillhub.html",
+      "goal": "The skill workflow reads as personal/local-first and avoids internal marketplace dependencies.",
+      "expect": ["技能中心", "Git 仓库", "导入"]
+    },
+    {
+      "id": "mcp",
+      "name": "MCP extensions",
+      "path": "/mcp.html",
+      "goal": "MCP extension management has an understandable empty/setup state for a solo user.",
+      "expect": ["MCP"]
+    },
+    {
+      "id": "api-docs",
+      "name": "API docs",
+      "path": "/api.html",
+      "goal": "API documentation is reachable and does not expose internal service assumptions.",
+      "expect": ["API"]
+    },
+    {
+      "id": "proxy-logs",
+      "name": "Gateway logs",
+      "path": "/proxy-logs.html",
+      "goal": "Gateway logs are understandable as a personal debugging feature and do not fail when empty.",
+      "expect": ["日志"]
+    }
+  ],
+  "healthChecks": [
+    {
+      "id": "me",
+      "name": "Current user session",
+      "path": "/api/me",
+      "expectJson": true
+    },
+    {
+      "id": "projects",
+      "name": "Project list",
+      "path": "/api/projects",
+      "expectJson": true
+    },
+    {
+      "id": "gateway-settings",
+      "name": "Gateway settings",
+      "path": "/api/settings/gateway",
+      "expectJson": true
+    },
+    {
+      "id": "gateway-models",
+      "name": "Gateway model list",
+      "path": "/api/gateway/models",
+      "expectJson": true,
+      "priority": "P1",
+      "suggestion": "Keep model discovery working after saving a personal gateway, because this is the first proof that AI coding can actually run."
+    },
+    {
+      "id": "check-update",
+      "name": "Personal-edition update check",
+      "method": "POST",
+      "path": "/api/admin/check-update",
+      "expectJson": true,
+      "priority": "P2",
+      "suggestion": "When updater is disabled, return a clear skipped state instead of a server error."
+    },
+    {
+      "id": "version",
+      "name": "Version info",
+      "path": "/api/version",
+      "expectJson": true
+    }
+  ]
+}
